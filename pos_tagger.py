@@ -25,6 +25,7 @@ def evaluate(data, model):
     processes = 4
     sentences = data[0]
     tags = data[1]
+
     n = len(sentences)
     k = n//processes
     n_tokens = sum([len(d) for d in sentences])
@@ -82,26 +83,57 @@ def evaluate(data, model):
 class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
-        pass
-    
+        self.tagCounts = {}
+        self.bigramCount = {}
+        
     
     def get_unigrams(self):
         """
         Computes unigrams. 
         Tip. Map each tag to an integer and store the unigrams in a numpy array. 
         """
-        ## TODO
-        pass
-
+        unigram = []
+        for tag in self.tag2idx: 
+            unigram.append(self.tagCounts[tag]/self.N)
+        return unigram
+    
     def get_bigrams(self):        
         """
         Computes bigrams. 
         Tip. Map each tag to an integer and store the bigrams in a numpy array
              such that bigrams[index[tag1], index[tag2]] = Prob(tag2|tag1). 
+
+        So basically this gives you the transition probability of tag2/tag1
         """
         ## TODO
-        pass
-    
+
+        for tag1 in self.tag2idx: 
+            for tag2 in self.tag2idx: 
+                self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] = 0
+
+        print(len(self.bigramsCount))    
+
+        # count the self.bigramsCount
+        for sentence in self.data[1]: 
+            for i in range(len(sentence)-1): 
+                tag1 = sentence[i]
+                tag2 = sentence[i+1]
+                self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] += 1
+
+        print(self.bigramsCount)
+
+        # count total bigrams, and use it to divide
+
+        bigrams = np.zeros((len(self.all_tags), len(self.all_tags)))
+
+        for bigram, count in self.bigramCount.items(): 
+            tag1 = self.idx2tag(bigram[0])
+            tag2 = self.idx2tag(bigram[1])
+            denominator = self.tagCounts[tag2]
+            bigrams.append(count/denominator)
+
+
+
     def get_trigrams(self):
         """
         Computes trigrams. 
@@ -133,8 +165,19 @@ class POSTagger():
         self.all_tags = list(set([t for tag in data[1] for t in tag]))
         self.tag2idx = {self.all_tags[i]:i for i in range(len(self.all_tags))}
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
+
+        
         ## TODO
-        pass
+
+        # count of each tag
+        for tag in self.all_tags: 
+            self.tagCounts[tag] = 0
+        for sentence in data[1]: 
+            for tag in sentence: 
+                self.tagCounts[tag] += 1
+        
+        self.N = sum(self.tagCounts.values())
+        print(self.N)
 
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
@@ -165,6 +208,9 @@ if __name__ == "__main__":
     test_data = load_data("data/test_x.csv")
 
     pos_tagger.train(train_data)
+    # print(train_data)
+    # print(type(train_data))
+
 
     # Experiment with your decoder using greedy decoding, beam search, viterbi...
 
