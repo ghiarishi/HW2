@@ -3,8 +3,7 @@ import numpy as np
 import time
 from tagger_utils import *
 from math import log
-
-
+import math
 
 """ Contains the part of speech tagger class. """
 
@@ -55,7 +54,7 @@ def evaluate(data, model):
         probabilities.update(a)
     
     print(f"Probability Estimation Runtime: {(time.time()-start)/60} minutes.")
-
+    
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
     unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
@@ -104,7 +103,6 @@ class POSTagger():
         unigram = np.zeros(len(self.all_tags))
         for tag in self.tag2idx: 
             unigram[self.tag2idx[tag]] = self.tagCounts[tag]/self.N
-        #print(unigram)
 
     def get_bigrams(self):        
         """
@@ -121,8 +119,6 @@ class POSTagger():
             for tag2 in self.tag2idx: 
                 self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] = 0
 
-        # print(len(self.bigramsCount))    
-
         # count the self.bigramsCount
         for sentence in self.data[1]: 
             for i in range(len(sentence)-1): 
@@ -130,15 +126,11 @@ class POSTagger():
                 tag2 = sentence[i+1]
                 self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] += 1
 
-        #print(self.bigramsCount)
-
         # count total bigrams, and use it to divide
 
         self.bigrams = np.zeros((len(self.all_tags), len(self.all_tags)))
         
         # Implementing add-k smoothing 
-
-        
 
         for key, count in self.bigramsCount.items(): 
             tag1 = self.idx2tag[key[0]]
@@ -146,8 +138,6 @@ class POSTagger():
             denominator = self.tagCounts[tag1] + self.k*self.N
             self.bigrams[key[0],key[1]] = (count + self.k)/denominator
             
-        #print(bigrams)
-    
     def get_trigrams(self):
         """
         Computes trigrams. 
@@ -164,8 +154,6 @@ class POSTagger():
                 for tag3 in self.tag2idx:
                     self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
 
-        # print(len(self.trigramsCount))    
-
         # Implementing add-k smoothing 
         
         trigrams = np.zeros((len(self.all_tags), len(self.all_tags),len(self.all_tags)))
@@ -176,8 +164,6 @@ class POSTagger():
             tag3 = self.idx2tag[trigram[2]]
             denominator = self.bigramsCount[self.tag2idx[tag1],self.tag2idx[tag2]] + self.k*self.N  # Not sure if this bit is right. 
             trigrams[trigram[0],trigram[1],trigram[2]] = (count + self.k)/denominator
-
-        #print(trigrams)
 
     def get_emissions(self):
         """
@@ -196,20 +182,13 @@ class POSTagger():
                 else: 
                     self.emissionsCount[(self.data[0][i][j], self.tag2idx[self.data[1][i][j]])] += 1
 
-        # print(self.emissionsCount)
-
         self.emissions = np.zeros((len(self.all_words),len(self.all_tags)))
 
-        # count = 0
         for key,value in self.emissionsCount.items():
-            # if count <10: print(key)
-            # count += 1
+          
             denom = self.tagCounts[self.idx2tag[key[1]]]
             self.emissions[self.word2idx[key[0]], key[1]] = value/denom
-     
-        # print('Emissions')
-        # print(self.emissions
-        
+
 
     def train(self, data):
         """Trains the model by computing transition and emission probabilities.
@@ -223,8 +202,6 @@ class POSTagger():
 
 
         self.all_tags = list(set([t for tag in data[1] for t in tag]))  # This is the list of all the PoS tags in the dataset. 
-
-        #print(self.all_tags)
 
         self.all_words = list(set([word for sentence in data[0] for word in sentence]))  # This is the list of all the PoS tags in the dataset. 
         self.word2idx = {self.all_words[i]:i for i in range(len(self.all_words))}  # This is basically a dictionary of Tag : id 
@@ -242,12 +219,9 @@ class POSTagger():
             for tag in sentence: 
                 self.tagCounts[tag] += 1
 
-        #print(self.tagCounts)
         
         self.N = sum(self.tagCounts.values())
         
-        # print(self.N)
-
         self.get_unigrams()
 
         self.get_bigrams()
@@ -325,7 +299,6 @@ class POSTagger():
                 prev = 'NN'
                 tagSeq.append('NN')
                         
-        # print(tagSeq)
         tagSeq.append('.')
         return tagSeq
 
@@ -338,11 +311,9 @@ class POSTagger():
 
         tag_seq = [['O'] for _ in range(k)]
         tag_seq_prob =  [0 for _ in range(k)]
-        print(sequence)
         for word in sequence[1:-1]: 
-            print(word)
             if word in self.word2idx:
-                top_prob =  [0 for _ in range(k)]
+                top_prob =  [-math.inf for _ in range(k)]
                 top_prob_tags = [('', 0) for _ in range(k)]
                 for i in range(k): 
                     for tag2 in self.all_tags: 
@@ -353,8 +324,6 @@ class POSTagger():
                             continue
                         prod = log(q) + log(e) + tag_seq_prob[i]
 
-                        print(prod)
-                        
                         for j in range(k):
                             if prod > top_prob[j]: 
                                 top_prob.insert(j, prod)
@@ -365,9 +334,6 @@ class POSTagger():
 
                 seqs = [[] for _ in range(k)]
                 probs = [0 for _ in range(k)]
-                # print(word)
-                # print(top_prob_tags)
-                # print(top_prob)
 
                 for a in range(k):
                     seqs[a] = tag_seq[top_prob_tags[a][1]]
@@ -383,7 +349,9 @@ class POSTagger():
                     seq.append('NN')
 
         index = tag_seq_prob.index(max(tag_seq_prob))
-        return tag_seq[index]
+        sol = tag_seq[index]
+        sol.append('.')
+        return sol
 
     def viterbi (self, sequence):
         """ Tags a sequence with PoS tags
