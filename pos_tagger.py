@@ -2,6 +2,7 @@ from multiprocessing import Pool
 import numpy as np
 import time
 from tagger_utils import *
+from math import log
 
 
 
@@ -53,11 +54,8 @@ def evaluate(data, model):
     for a in ans:
         probabilities.update(a)
     
-    print(len(predictions), len(predictions[0]))
-
     print(f"Probability Estimation Runtime: {(time.time()-start)/60} minutes.")
 
-    print(n, len(sentences[0]))
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
     unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
@@ -123,7 +121,7 @@ class POSTagger():
             for tag2 in self.tag2idx: 
                 self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] = 0
 
-        print(len(self.bigramsCount))    
+        # print(len(self.bigramsCount))    
 
         # count the self.bigramsCount
         for sentence in self.data[1]: 
@@ -157,6 +155,8 @@ class POSTagger():
         """
         ## TODO
 
+        # PREPEND ONE EXTRA START : Lecture 4 slide 19
+
         # Maybe, we will make a 3D np array, with all the possibilities and initialize them to 0. 
 
         for tag1 in self.tag2idx: 
@@ -164,7 +164,7 @@ class POSTagger():
                 for tag3 in self.tag2idx:
                     self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
 
-        print(len(self.trigramsCount))    
+        # print(len(self.trigramsCount))    
 
         # Implementing add-k smoothing 
         
@@ -188,15 +188,6 @@ class POSTagger():
         Probability of word given a tag, to find this you need to count instances of the word, given a tag
         """
         ## TODO
-
-        # We need to handle unknown words over here, and we will basically start with 
-
-        # Option - 1 - Assign each word as a noun, This is a good baseline to start with for simplicity. 
-
-        # Option - 2 - Assign each word as <Unk>, this can be the next thing we do. 
-
-        # Option - 3 - Implement the Suffix Tree - Get the suffix of each of the different words in the training data 
-        # and check the suffix of the unknown word and then compare and assign a Tag. 
         
         for i in range(len(self.data[0])): 
             for j in range(len(self.data[0][i])):
@@ -275,8 +266,19 @@ class POSTagger():
         """
         ## TODO
 
+        prob = 1
+        for i in range(1, len(sequence)):
+            # probability of word given the tag
+            if sequence[i] in self.word2idx:
+                q = self.bigrams[self.tag2idx[tags[i-1]], self.tag2idx[tags[i]]]
+                e = self.emissions[self.word2idx[sequence[i]], self.tag2idx[tags[i]]]
+                prob *= q*e
+            else: 
+                continue
+                # FILL THIS IN 
+                # Unknown word prob = 1
 
-        return 0.
+        return prob
 
     def inference(self, sequence):
         """Tags a sequence with part of speech tags.
@@ -291,7 +293,8 @@ class POSTagger():
         # probably won't use this function. 
         ## TODO
 
-        seq = self.greedy(sequence)
+        # seq = self.greedy(sequence)
+        seq = self.beam(sequence, 3)
 
         return seq
 
@@ -326,12 +329,61 @@ class POSTagger():
         tagSeq.append('.')
         return tagSeq
 
-    def beam (self, sequence):
+    def beam(self, sequence, k):
         """ Tags a sequence with PoS tags
 
         Implements beam search"""
 
         ## TODO 
+
+        tag_seq = [['O'] for _ in range(k)]
+        tag_seq_prob =  [0 for _ in range(k)]
+        print(sequence)
+        for word in sequence[1:-1]: 
+            print(word)
+            if word in self.word2idx:
+                top_prob =  [0 for _ in range(k)]
+                top_prob_tags = [('', 0) for _ in range(k)]
+                for i in range(k): 
+                    for tag2 in self.all_tags: 
+                        q = self.bigrams[self.tag2idx[tag_seq[i][-1]], self.tag2idx[tag2]]
+                        e = self.emissions[self.word2idx[word], self.tag2idx[tag2]]
+
+                        if e == 0: 
+                            continue
+                        prod = log(q) + log(e) + tag_seq_prob[i]
+
+                        print(prod)
+                        
+                        for j in range(k):
+                            if prod > top_prob[j]: 
+                                top_prob.insert(j, prod)
+                                top_prob.pop()
+                                top_prob_tags.insert(j, (tag2,i))
+                                top_prob_tags.pop()
+                                break
+
+                seqs = [[] for _ in range(k)]
+                probs = [0 for _ in range(k)]
+                # print(word)
+                # print(top_prob_tags)
+                # print(top_prob)
+
+                for a in range(k):
+                    seqs[a] = tag_seq[top_prob_tags[a][1]]
+                    seqs[a].append(top_prob_tags[a][0])         
+                    probs[a] = tag_seq_prob[top_prob_tags[a][1]]
+                    probs[a] = top_prob[a]         
+
+                tag_seq = seqs
+                tag_seq_prob = probs
+
+            else: # for unknown words, we have assumed prob = 1, and noun
+                for seq in tag_seq:
+                    seq.append('NN')
+
+        index = tag_seq_prob.index(max(tag_seq_prob))
+        return tag_seq[index]
 
     def viterbi (self, sequence):
         """ Tags a sequence with PoS tags
