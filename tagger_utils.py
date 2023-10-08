@@ -20,7 +20,6 @@ def infer_sentences(model, sentences, start):
     res = {}
     for i in range(len(sentences)):
         res[start+i] = model.inference(sentences[i])
-        # break #REMOVE
     return res
     
 def compute_prob(model, sentences, tags, start):
@@ -39,7 +38,6 @@ def compute_prob(model, sentences, tags, start):
     res = {}
     for i in range(len(sentences)):
         res[start+i] = model.sequence_probability(sentences[i], tags[i])
-        # break #REMOVE
     return res
     
 
@@ -115,8 +113,6 @@ def confusion_matrix(tag2idx,idx2tag, pred, gt, fname):
         flat_pred.extend(p)
     for true in gt:
         flat_y.extend(true)
-    print(len(flat_pred))
-    print(len(flat_y))
     for i in range(len(flat_pred)):
         idx_pred = tag2idx[flat_pred[i]]
         idx_y = tag2idx[flat_y[i]]

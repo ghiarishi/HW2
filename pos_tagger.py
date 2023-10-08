@@ -4,6 +4,10 @@ import time
 from tagger_utils import *
 from math import log
 import math
+import csv
+from collections import defaultdict 
+from collections import Counter
+
 
 """ Contains the part of speech tagger class. """
 
@@ -74,7 +78,7 @@ def evaluate(data, model):
     print("Token acc: {}".format(token_acc))
     print("Unk token acc: {}".format(unk_token_acc))
     
-    print(len(pos_tagger.tag2idx), len(pos_tagger.idx2tag), len(predictions.values()), len(tags))
+    # print(len(pos_tagger.tag2idx), len(pos_tagger.idx2tag), len(predictions.values()), len(tags))
     confusion_matrix(pos_tagger.tag2idx, pos_tagger.idx2tag, predictions.values(), tags, 'cm.png')
 
     return whole_sent_acc/num_whole_sent, token_acc, sum(probabilities.values())/n
@@ -88,7 +92,9 @@ class POSTagger():
         self.bigramsCount = {}
         self.trigramsCount = {}
         self.emissionsCount = {}
-        self.k = 1
+        self.k = 0.1
+        self.smoothing = True # false is witten, true is add k
+        self.unknowns = False
     
     
     def get_unigrams(self):
@@ -131,13 +137,27 @@ class POSTagger():
 
         self.bigrams = np.zeros((len(self.all_tags), len(self.all_tags)))
         
-        # Implementing add-k smoothing 
+        # Implementing add-k smoothing, witten-bell smoothing
+
 
         for key, count in self.bigramsCount.items(): 
             tag1 = self.idx2tag[key[0]]
             tag2 = self.idx2tag[key[1]]
-            denominator = self.tagCounts[tag1] + self.k*self.N
-            self.bigrams[key[0],key[1]] = (count + self.k)/denominator
+
+            if self.smoothing: 
+                denominator = self.tagCounts[tag1] + self.k*self.V
+                self.bigrams[key[0],key[1]] = (count + self.k)/denominator
+            
+            else: 
+                denominator = (len(self.T[tag1]) + self.tagCounts[tag1])
+
+                if count == 0: # bigram never occurs
+                    self.bigrams[key[0],key[1]] = len(self.T[tag1])/denominator
+                else: 
+                    self.bigrams[key[0],key[1]] = (count)/denominator
+
+
+        
             
     def get_trigrams(self):
         """
@@ -212,6 +232,13 @@ class POSTagger():
         self.tag2idx = {self.all_tags[i]:i for i in range(len(self.all_tags))}  # This is basically a dictionary of Tag : id 
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}    # And this basically is a dictionary of id: Tag
 
+
+        self.T = {key: set() for key in self.all_tags}
+
+        for sentence in data[1]:
+            for i in range(len(sentence)-1):
+                self.T[sentence[i]].add(sentence[i+1])
+
         ## TODO
         # count of each tag 
         for tag in self.all_tags: 
@@ -223,6 +250,8 @@ class POSTagger():
         
         self.N = sum(self.tagCounts.values())
         
+        self.V = len(set(self.word2idx.keys()))
+        
         self.get_unigrams()
 
         self.get_bigrams()
@@ -230,6 +259,16 @@ class POSTagger():
         self.get_trigrams()
 
         self.get_emissions()
+
+        # Build the suffix mapping
+        self.suffixes = defaultdict(Counter)
+        for sentence, tag_seq in zip(data[0], data[1]):
+            for word, tag in zip(sentence, tag_seq):
+                # Here, we take the last 3 characters as the suffix; this number can be tuned
+                self.suffixes[word[-3:]].update([tag])
+                
+        # Choose the most common tag for each suffix
+        self.suffix_to_tag = {suffix: tags.most_common(1)[0][0] for suffix, tags in self.suffixes.items()}
 
 
         # Making the assumption that we are starting with bi-grams, n = 2. Can generalise later. 
@@ -268,7 +307,7 @@ class POSTagger():
         # probably won't use this function. 
         ## TODO
 
-        #seq = self.greedy(sequence)
+        # seq = self.greedy(sequence)
         # seq = self.beam(sequence, 2)
         seq = self.viterbi(sequence)
 
@@ -297,9 +336,14 @@ class POSTagger():
                 prev = maxTag
                 tagSeq.append(maxTag)
             else: 
-                # handling the unknown word as a noun
-                prev = 'NN'
-                tagSeq.append('NN')
+                if self.unknowns: 
+                    # handling the unknown word as a noun
+                    prev = 'NN'
+                    tagSeq.append('NN')
+
+                else: # suffix tree mapping
+                    prev = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                    tagSeq.append(prev)
         return tagSeq
 
     def beam(self, sequence, k):
@@ -458,10 +502,16 @@ class POSTagger():
         
             else: # if word is unknown
                 # print("Unkown: ", word)
-                for j in range(len(self.all_tags)): # go through each tag
-                    pi[i, j] = pi[i-1, j]
-                    bp[i,j] = bp[i-1,j]
+                if self.unknowns: 
+                    for j in range(len(self.all_tags)): # go through each tag
+                        pi[i, j] = pi[i-1, j]
+                        bp[i,j] = bp[i-1,j]
 
+                else: # suffix tree mapping
+                    for j in range(len(self.all_tags)): # go through each tag
+                        tag_idx = self.tag2idx[self.suffix_to_tag.get(word[-3:], "NN")]  # default to noun if suffix not in mapping
+                        pi[i, j] = pi[i-1, j]
+                        bp[i,j] = tag_idx       
 
         # Reconstruct the max sequence: 
 
@@ -507,3 +557,9 @@ if __name__ == "__main__":
     
     # Write them to a file to update the leaderboard
     # TODO
+    
+    with open("test_y.csv", "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["id", "tag"])  # write the headers first
+        for index, item in enumerate(test_predictions):
+            writer.writerow([index, item])
