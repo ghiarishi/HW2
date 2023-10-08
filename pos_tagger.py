@@ -268,8 +268,9 @@ class POSTagger():
         # probably won't use this function. 
         ## TODO
 
-        seq = self.greedy(sequence)
+        #seq = self.greedy(sequence)
         # seq = self.beam(sequence, 2)
+        seq = self.viterbi(sequence)
 
         return seq
 
@@ -306,56 +307,18 @@ class POSTagger():
 
         Implements beam search"""
 
+        pass
         ## TODO 
-        seqs = ['O']
-        for word in sequence[1:]: 
+        # s1 = ['O']
+        # for word in sequence[1:]: 
 
-            if word in self.word2idx:
+        #     if word in self.word2idx:
 
-                for tag in self.all_tags: 
+        #         for tag in self.all_tags: 
                 
-                    q = self.bigrams[self.tag2idx[seq[-1]], self.tag2idx[tag]]
+        #             q = self.bigrams[self.tag2idx[s1[-1]], self.tag2idx[tag]]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        # OLD CODE BELOW
         # wordOneFlag = True
         # tag_seq = [['O']]
         # tag_seq_prob =  [0]
@@ -449,7 +412,77 @@ class POSTagger():
 
         Implements viterbi decoding"""
 
-        ## TODO 
+        # TODO
+        # print(sequence)
+        # this is for bigrams, another self.alltags for trigrams
+        pi = np.ones((len(sequence), len(self.all_tags)))
+
+        pi *= -math.inf
+        for i in range(len(self.all_tags)): # assign the probs to 1 at the start tag for EACH tag
+            pi[0,i] = 0
+
+        bp = np.zeros((len(sequence), len(self.all_tags)))
+
+        for i in range(1,len(sequence)): 
+
+            word = sequence[i]
+            # print(word)
+
+            if word in self.word2idx: # if word is known
+                # print(word)
+                # print(pi[:5])
+                
+                for j in range(len(self.all_tags)): # go through each tag
+                    tag_next = self.all_tags[j]
+
+                    for k in range(len(self.all_tags)): # go through each tag
+                        tag_prev = self.all_tags[k] 
+                        
+                        q = log(self.bigrams[self.tag2idx[tag_prev], self.tag2idx[tag_next]])
+                        e = self.emissions[self.word2idx[word], self.tag2idx[tag_next]]
+                        
+                        if e != 0: 
+                            e = log(e)
+                        else: 
+                            continue
+                        
+                        prod = q+e
+
+                        prod += pi[i-1, k]
+                        if prod > pi[i, j]: 
+                            pi[i, j] = prod
+
+                            # assign BP here
+                            bp[i, j] = k
+
+        
+            else: # if word is unknown
+                # print("Unkown: ", word)
+                for j in range(len(self.all_tags)): # go through each tag
+                    pi[i, j] = pi[i-1, j]
+                    bp[i,j] = bp[i-1,j]
+
+
+        # Reconstruct the max sequence: 
+
+        seq = ['' for i in range(len(sequence))]
+        seq[0] = 'O'
+        seq[len(sequence)-1] = '.'
+        for i in range(len(sequence)-1): 
+            word = len(sequence) - i - 1
+
+            max_idx = np.argmax(pi[word])
+            
+            prev_tag = self.idx2tag[bp[word, max_idx]]
+
+            seq[word-1] = prev_tag
+
+            
+
+        # print(max(pi[-1]))
+        # print(bp)
+        # print(seq)
+        return seq
 
 
 if __name__ == "__main__":
