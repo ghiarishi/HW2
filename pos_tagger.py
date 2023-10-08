@@ -7,7 +7,7 @@ import math
 import csv
 from collections import defaultdict 
 from collections import Counter
-
+import copy
 
 """ Contains the part of speech tagger class. """
 
@@ -58,7 +58,9 @@ def evaluate(data, model):
         probabilities.update(a)
     
     print(f"Probability Estimation Runtime: {(time.time()-start)/60} minutes.")
-    
+    print(len(predictions[5]))
+    print(len(tags[5]))
+    print(len(sentences[5]))
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
     unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
@@ -94,7 +96,7 @@ class POSTagger():
         self.emissionsCount = {}
         self.k = 0.1
         self.smoothing = True # false is witten, true is add k
-        self.unknowns = False
+        self.unknowns = False # false is suffix, true is nouns 
     
     
     def get_unigrams(self):
@@ -308,8 +310,8 @@ class POSTagger():
         ## TODO
 
         # seq = self.greedy(sequence)
-        # seq = self.beam(sequence, 2)
-        seq = self.viterbi(sequence)
+        seq = self.beam(sequence, 2)
+        # seq = self.viterbi(sequence)
 
         return seq
 
@@ -351,7 +353,7 @@ class POSTagger():
 
         Implements beam search"""
 
-        pass
+        
         ## TODO 
         # s1 = ['O']
         # for word in sequence[1:]: 
@@ -364,92 +366,101 @@ class POSTagger():
 
         # OLD CODE BELOW
         # wordOneFlag = True
-        # tag_seq = [['O']]
-        # tag_seq_prob =  [0]
-        # for word in sequence[1:-1]: 
-        #     probSet = set()
-        #     if word in self.word2idx:
-        #         top_prob =  []
-        #         top_prob_tags = []
+        tag_seq = [('O') for i in range(3)]
+        tag_seq_prob =  [0 for j in range(3)]
+        for word in sequence[1:-1]: 
+            # probSet = set()
+            if word in self.word2idx:
+                top_prob =  [-math.inf]
+                top_prob_tags = [('',0)]
 
-        #         # go through the 3 current sequences we have 
-        #         for i in range(len(tag_seq)): 
+                # go through the 3 current sequences we have 
+                for i in range(len(set(tag_seq))): 
                 
-        #             # for each sequence, check each possible tag
-        #             for tag2 in self.all_tags: 
+                    # for each sequence, check each possible tag
+                    for tag2 in self.all_tags: 
 
-        #                 q = self.bigrams[self.tag2idx[tag_seq[i][-1]], self.tag2idx[tag2]]
-        #                 e = self.emissions[self.word2idx[word], self.tag2idx[tag2]]
+                        q = self.bigrams[self.tag2idx[tag_seq[i][-1]], self.tag2idx[tag2]]
+                        e = self.emissions[self.word2idx[word], self.tag2idx[tag2]]
                         
-        #                 if e == 0: 
-        #                     # print(e)
-        #                     continue
+                        if e == 0: 
+                            # print(e)
+                            continue
 
-        #                 # for each tag for each sequence we have, calculate the product
-        #                 prod = log(q) + log(e) + tag_seq_prob[i]
-        #                 # print(log(q), log(e))
+                        # for each tag for each sequence we have, calculate the product
+                        prod = log(q) + log(e) + tag_seq_prob[i]
+                        # print(log(q), log(e))
 
-        #                 # ensure a seq is added only once (unique)
-        #                 if prod in probSet:
-        #                     break
-        #                 probSet.add(prod)
+                        # ensure a seq is added only once (unique)
+                        # if prod in probSet:
+                        #     break
+                        # probSet.add(prod)
                         
-        #                 lowestVal = True
+                        lowestVal = True
 
-        #                 if len(top_prob) == 0: 
-        #                     top_prob.append(prod)
-        #                     top_prob_tags.append((tag2, i))
+                        if len(top_prob) == 0: 
+                            top_prob.append(prod)
+                            top_prob_tags.append((tag2, i))
 
-        #                 else: 
-        #                     # iterate through the current top 3 probabilities we have stored
-        #                     for j in range(len(top_prob)):
+                        else: 
+                            # iterate through the current top 3 probabilities we have stored
+                            for j in range(len(top_prob)):
 
-        #                         # if the product we have is higher than any of these probabilities
-        #                         if prod > top_prob[j]: 
-        #                             # if greater than the jth element, then insert in the jth position
-        #                             top_prob.insert(j, prod)
-        #                             # keep track of the sequence this tag is part of through i
-        #                             top_prob_tags.insert(j, (tag2,i))
-        #                             if len(top_prob) >= k: 
-        #                                 top_prob.pop()
-        #                                 top_prob_tags.pop()
-        #                             # print(top_prob_tags)
-        #                             lowestVal = False
-        #                             break
+                                # if the product we have is higher than any of these probabilities
+                                if prod > top_prob[j]: 
+                                    # if greater than the jth element, then insert in the jth position
+                                    top_prob.insert(j, prod)
+                                    # keep track of the sequence this tag is part of through i
+                                    top_prob_tags.insert(j, (tag2,i))
+                                    if len(top_prob) >= k: 
+                                        top_prob.pop()
+                                        top_prob_tags.pop()
+                                    # print(top_prob_tags)
+                                    lowestVal = False
+                                    break
                             
-        #                     if lowestVal and len(top_prob) < k: 
-        #                         top_prob.append(prod)
-        #                         top_prob_tags.append((tag2, i))
+                            if lowestVal and len(top_prob) < k: 
+                                top_prob.append(prod)
+                                top_prob_tags.append((tag2, i))
 
-        #             print(len(top_prob_tags), top_prob_tags)  
-        #             # if wordOneFlag: 
-        #             #     wordOneFlag = False
-        #             #     break
+                    # print(len(top_prob_tags), top_prob_tags)  
+                    # if wordOneFlag: 
+                    #     wordOneFlag = False
+                    #     break
 
-        #         seqs = [[] for _ in range(len(top_prob))]
-        #         probs = [0 for _ in range(len(top_prob))]
+                seqs = [() for _ in range(len(top_prob))]
+                probs = [0 for _ in range(len(top_prob))]
 
-        #         for a in range(len(top_prob)):
-        #             seqs[a] = tag_seq[top_prob_tags[a][1]]
-        #             seqs[a].append(top_prob_tags[a][0])         
-        #             probs[a] = tag_seq_prob[top_prob_tags[a][1]]
-        #             probs[a] = top_prob[a]         
+                for a in range(len(top_prob)):
+                    #print(seqs[a])
+                    seqs[a] = (*seqs[a],*tag_seq[top_prob_tags[a][1]])
+                    #print(seqs)
+                    seqs[a] = (*seqs[a],top_prob_tags[a][0])         
+                    probs[a] = tag_seq_prob[top_prob_tags[a][1]]
+                    probs[a] += top_prob[a]         
 
-        #         tag_seq = seqs
-        #         tag_seq_prob = probs
+                tag_seq = copy.deepcopy(seqs)
+                tag_seq_prob = copy.deepcopy(probs)
 
-        #         # print(word)
-        #         # print(tag_seq_prob)
+                #print(tag_seq)
+                #print(tag_seq_prob)
 
-        #     else: # for unknown words, we have assumed prob = 1, and noun
-        #         for seq in tag_seq:
-        #             seq.append('NN')
+                # print(word)
+                # print(tag_seq_prob)
 
-        # # print(tag_seq_prob)
-        # index = tag_seq_prob.index(max(tag_seq_prob))
-        # sol = tag_seq[index]
-        # sol.append('.')
-        # return sol
+            else: # for unknown words, we have assumed prob = 1, and noun
+                for seq in tag_seq:
+                    # seq.append('NN')
+                    seq = (*seq,'NN')
+        # print(tag_seq_prob)
+
+            
+        index = tag_seq_prob.index(max(tag_seq_prob))
+        sol = tag_seq[index]
+        sol = list(sol)
+        sol.append('.')
+        #print(sol)
+        return sol
 
     def viterbi (self, sequence):
         """ Tags a sequence with PoS tags
@@ -516,22 +527,33 @@ class POSTagger():
         # Reconstruct the max sequence: 
 
         seq = ['' for i in range(len(sequence))]
+
+        # Start with the last word's most probable tag
+        seq[-1] = self.idx2tag[np.argmax(pi[-1])]
+
+        # Backtrack through the rest of the sequence
+        for i in range(len(sequence)-2, 0, -1):
+            max_idx = np.argmax(pi[i+1])
+            seq[i] = self.idx2tag[int(bp[i+1, max_idx])]
+
+
         seq[0] = 'O'
-        seq[len(sequence)-1] = '.'
-        for i in range(len(sequence)-1): 
-            word = len(sequence) - i - 1
+        # seq[len(sequence)-1] = '.'
+        # for i in range(len(sequence)-1): 
+        #     word = len(sequence) - i - 1
 
-            max_idx = np.argmax(pi[word])
+        #     max_idx = np.argmax(pi[word])
             
-            prev_tag = self.idx2tag[bp[word, max_idx]]
+        #     prev_tag = self.idx2tag[bp[word, max_idx]]
 
-            seq[word-1] = prev_tag
+        #     seq[word-1] = prev_tag
 
             
 
         # print(max(pi[-1]))
         # print(bp)
         # print(seq)
+
         return seq
 
 
