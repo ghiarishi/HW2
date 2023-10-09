@@ -105,9 +105,7 @@ class POSTagger():
         self.unknowns = False # false is suffix, true is nouns 
         self.beam_k = 3
         self.model = 2
-        self.kgram = 3 # 2 for bigrams, 3 for trigrams
-    
-    
+        self.kgram = 2 # 2 for bigrams, 3 for trigrams   
     
     def get_unigrams(self):
         """
@@ -431,6 +429,7 @@ class POSTagger():
         Implements beam search"""
         
         ## TODO 
+        unknownCount = 0
         if self.kgram == 2: 
             top_k_seq = [['O'] for i in range(k)]
             top_k_prob =  [0 for j in range(k)]
@@ -495,6 +494,7 @@ class POSTagger():
                     # print(top_k_seq)
                                 
                 else: 
+                    unknownCount += 1
                     if self.unknowns: 
                         for seq in top_k_seq:
                             seq.append('NN')
@@ -506,7 +506,8 @@ class POSTagger():
                             e = self.unigramsCount[cur_tag]/self.N
                             top_k_prob[i] += log(q) + log(e)
 
-
+            # print("Sequence P for Beam (bigram)", top_k_prob[0])
+            # print(unknownCount)
             sol = top_k_seq[0]
             sol.append('.')
             return sol    
@@ -599,7 +600,7 @@ class POSTagger():
         # TODO
         # print(sequence)
         # this is for bigrams, another self.alltags for trigrams
-
+        unknownCount = 0
         if self.kgram == 2: 
             pi = np.ones((len(sequence), len(self.all_tags)))
 
@@ -632,17 +633,15 @@ class POSTagger():
                             else: 
                                 continue
                             
-                            prod = q+e
-
-                            prod += pi[i-1, k]
+                            prod = q + e + pi[i-1, k]
                             if prod > pi[i, j]: 
                                 pi[i, j] = prod
 
                                 # assign BP here
                                 bp[i, j] = k
 
-            
                 else: # if word is unknown
+                    unknownCount += 1
                     # print("Unkown: ", word)
                     if self.unknowns: 
                         for j in range(len(self.all_tags)): # go through each tag
@@ -650,13 +649,27 @@ class POSTagger():
                             bp[i,j] = bp[i-1,j]
 
                     else: # suffix tree mapping
-                        for j in range(len(self.all_tags)): # go through each tag
-                            tag_idx = self.tag2idx[self.suffix_to_tag.get(word[-3:], "NN")]  # default to noun if suffix not in mapping
-                            max_prev_tag = self.all_tags[np.argmax(pi[i-1])]
-                            q = self.bigrams[self.tag2idx[max_prev_tag], tag_idx]
-                            e = self.unigramsCount[self.idx2tag[tag_idx]]/self.N
-                            pi[i, j] = pi[i-1, j] + log(q) + log(e)
-                            bp[i,j] = self.tag2idx[max_prev_tag]    
+
+                        cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                        j = self.tag2idx[cur_tag]
+
+                        e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
+
+                        
+                        maxPtag = -math.inf  # Initialize with negative infinity
+                        
+                        for k in range(len(self.all_tags)):  # Loop over all possible previous tags
+    
+                            q = self.bigrams[k, j]
+                            
+                            # If q and e are both non-zero, compute the Viterbi score
+                            if q*e > 0:
+                                prob = log(q) + log(e) + pi[i-1, k]
+                                if prob > maxPtag:
+                                    maxPtag = prob
+                                    bp[i, j] = k
+                        
+                        pi[i, j] = maxPtag 
 
             # Reconstruct the max sequence: 
 
@@ -666,12 +679,14 @@ class POSTagger():
             seq[0] = 'O'
 
             seq[-1] = self.idx2tag[np.argmax(pi[-1])]
-
             # Backtrack through the rest of the sequence
             for i in range(len(sequence)-2, 0, -1):
                 max_idx = np.argmax(pi[i+1])
                 seq[i] = self.idx2tag[int(bp[i+1, max_idx])]
-            
+
+            # print("Sequence P for Viterbi: ", max(pi[-1]))
+            # print(unknownCount)
+
             return seq
         
         elif self.kgram == 3: 
@@ -715,22 +730,28 @@ class POSTagger():
                                 # assign BP here
                                 bp[i, j] = k
 
-            
-                else: # if word is unknown
-                    # print("Unkown: ", word)
-                    if self.unknowns: 
-                        for j in range(len(self.all_tags)): # go through each tag
-                            pi[i, j] = pi[i-1, j]
-                            bp[i,j] = bp[i-1,j]
+                else: # suffix tree mapping
 
-                    else: # suffix tree mapping
-                        for j in range(len(self.all_tags)): # go through each tag
-                            tag_idx = self.tag2idx[self.suffix_to_tag.get(word[-3:], "NN")]  # default to noun if suffix not in mapping
-                            max_prev_tag = self.all_tags[np.argmax(pi[i-1])]
-                            q = self.bigrams[self.tag2idx[max_prev_tag], tag_idx]
-                            e = self.unigramsCount[self.idx2tag[tag_idx]]/self.N
-                            pi[i, j] = pi[i-1, j] + log(q) + log(e)
-                            bp[i,j] = self.tag2idx[max_prev_tag]    
+                        cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                        j = self.tag2idx[cur_tag]
+
+                        e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
+
+                        
+                        maxPtag = -math.inf  # Initialize with negative infinity
+                        
+                        for k in range(len(self.all_tags)):  # Loop over all possible previous tags
+    
+                            q = self.bigrams[k, j]
+                            
+                            # If q and e are both non-zero, compute the Viterbi score
+                            if q*e > 0:
+                                prob = log(q) + log(e) + pi[i-1, k]
+                                if prob > maxPtag:
+                                    maxPtag = prob
+                                    bp[i, j] = k
+                        
+                        pi[i, j] = maxPtag 
 
             # Reconstruct the max sequence: 
 
