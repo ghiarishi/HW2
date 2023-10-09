@@ -8,6 +8,8 @@ import csv
 from collections import defaultdict 
 from collections import Counter
 import copy
+from itertools import permutations
+
 
 """ Contains the part of speech tagger class. """
 
@@ -98,8 +100,8 @@ class POSTagger():
         self.smoothing = False # false is witten, true is add k
         self.unknowns = False # false is suffix, true is nouns 
         self.beam_k = 3
-        self.model = 3
-        self.kgram = 2
+        self.model = 2
+        self.kgram = 3
     
     
     def get_unigrams(self):
@@ -177,6 +179,19 @@ class POSTagger():
                 for tag3 in self.tag2idx:
                     self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
 
+        
+        # count the self.trigramsCount
+        for sentence in self.data[1]: 
+            for i in range(1,len(sentence)):
+                if i ==1:
+                    tag1 = 'O'
+                    tag2 = 'O'
+                else:  
+                    tag1 = sentence[i-2]
+                    tag2 = sentence[i-1]
+                tag3 = sentence[i]
+                self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2], self.tag2idx[tag3])] += 1
+
         # Implementing add-k smoothing 
         
         self.trigrams = np.zeros((len(self.all_tags), len(self.all_tags),len(self.all_tags)))
@@ -185,8 +200,23 @@ class POSTagger():
             tag1 = self.idx2tag[trigram[0]]
             tag2 = self.idx2tag[trigram[1]]
             tag3 = self.idx2tag[trigram[2]]
-            denominator = self.bigramsCount[self.tag2idx[tag1],self.tag2idx[tag2]] + self.k*self.V  # Not sure if this bit is right. 
-            self.trigrams[trigram[0],trigram[1],trigram[2]] = (count + self.k)/denominator
+
+            if self.smoothing: 
+                denominator = self.bigramsCount[self.tag2idx[tag1],self.tag2idx[tag2]] + self.k*self.V 
+                self.trigrams[trigram[0],trigram[1],trigram[2]] = (count + self.k)/denominator
+            else: 
+                if count == 0: # bigram never occurs
+                    z = 0
+                    for key in self.trigramsCount.keys(): 
+                        if key[0] == tag1 and key[1] == tag2: 
+                            for tag_last in self.all_tags: 
+                                if self.trigramsCount[(tag1, tag2, tag_last)] == 0: 
+                                    z += 1
+                    denominator = (len(self.T2[(tag1, tag2)]) + self.bigramsCount[tag1, tag2])*z
+                    self.trigrams[tag1, tag2, tag3] = self.bigramsCount[tag1, tag2]/denominator
+                else: 
+                    denominator = len(self.T2[(tag1, tag2)]) + self.bigramsCount[tag1, tag2]
+                    self.trigrams[tag1, tag2, tag3] = count/denominator     
 
     def get_emissions(self):
         """
@@ -236,10 +266,18 @@ class POSTagger():
 
 
         self.T = {key: set() for key in self.all_tags}
+        self.T2 = {perm: set() for perm in permutations(self.all_tags, 2)}
+        
+        print(len(self.T2.keys()))
 
         for sentence in data[1]:
             for i in range(len(sentence)-1):
                 self.T[sentence[i]].add(sentence[i+1])
+
+        for sentence in data[1]: 
+            for i in range(len(sentence)-2):
+                if (sentence[i], sentence[i+1]) in self.T2: 
+                    self.T2[(sentence[i], sentence[i+1])].add(sentence[i+2])
 
         ## TODO
         # count of each tag 
