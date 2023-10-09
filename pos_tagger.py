@@ -310,7 +310,7 @@ class POSTagger():
         ## TODO
 
         # seq = self.greedy(sequence)
-        seq = self.beam(sequence, 2)
+        seq = self.beam(sequence, 3)
         # seq = self.viterbi(sequence)
 
         return seq
@@ -352,115 +352,147 @@ class POSTagger():
         """ Tags a sequence with PoS tags
 
         Implements beam search"""
-
         
         ## TODO 
-        # s1 = ['O']
-        # for word in sequence[1:]: 
 
-        #     if word in self.word2idx:
-
-        #         for tag in self.all_tags: 
-                
-        #             q = self.bigrams[self.tag2idx[s1[-1]], self.tag2idx[tag]]
-
-        # OLD CODE BELOW
-        # wordOneFlag = True
-        tag_seq = [('O') for i in range(3)]
-        tag_seq_prob =  [0 for j in range(3)]
+        top_k_seq = [['O'] for i in range(k)]
+        top_k_prob =  [0 for j in range(k)]
         for word in sequence[1:-1]: 
             # probSet = set()
             if word in self.word2idx:
-                top_prob =  [-math.inf]
-                top_prob_tags = [('',0)]
+                cur_k_seq = {}
+                cur_k_seq_set = set()
 
-                # go through the 3 current sequences we have 
-                for i in range(len(set(tag_seq))): 
-                
-                    # for each sequence, check each possible tag
-                    for tag2 in self.all_tags: 
+                # go through the all the sequences we have
+                for i in range(len(top_k_seq)): 
+                    parent = top_k_seq[i]
+                    parent_prob = top_k_prob[i]
 
-                        q = self.bigrams[self.tag2idx[tag_seq[i][-1]], self.tag2idx[tag2]]
-                        e = self.emissions[self.word2idx[word], self.tag2idx[tag2]]
+                    # for each parent, check each possible tags
+                    for tag in self.all_tags: 
+
+                        q = self.bigrams[self.tag2idx[top_k_seq[i][-1]], self.tag2idx[tag]]
+                        e = self.emissions[self.word2idx[word], self.tag2idx[tag]]
                         
-                        if e == 0: 
+                        if q*e == 0: 
                             # print(e)
                             continue
 
-                        # for each tag for each sequence we have, calculate the product
-                        prod = log(q) + log(e) + tag_seq_prob[i]
-                        # print(log(q), log(e))
-
-                        # ensure a seq is added only once (unique)
-                        # if prod in probSet:
-                        #     break
-                        # probSet.add(prod)
+                        # for each tag for each sequence we have, calculate the prprobability
+                        prob = log(q) + log(e) + parent_prob
                         
-                        lowestVal = True
+                        # keep adding sequences into the set so long as its length is less than k
+                        # if length is k, then every time you add a sequence, remove the lowest prob sequence 
+                        new_seq = copy.deepcopy(parent)
+                        new_seq.append(tag)
+                        # print(new_seq)
+                        
+                        # print(cur_k_seq_set)
+                        
+                        if tuple(new_seq) not in cur_k_seq_set:
+                            if len(cur_k_seq_set) < k:
+                                cur_k_seq_set.add(tuple(new_seq))
+                                cur_k_seq[prob] = (new_seq, i)
 
-                        if len(top_prob) == 0: 
-                            top_prob.append(prod)
-                            top_prob_tags.append((tag2, i))
+                            # if the length is k or greater, repalce least probable element with new one(if higher)
+                            else:                              
+                                minProb = min(cur_k_seq.keys())
+                                if prob > minProb: 
+                                    cur_k_seq[prob] = (new_seq, i)
+                                    remove_from_set = cur_k_seq[minProb]
+                                    cur_k_seq_set.remove(tuple(remove_from_set[0]))
+                                    cur_k_seq_set.add(tuple(new_seq))
+                                    del cur_k_seq[minProb]
+                        # print(cur_k_seq_set)
 
-                        else: 
-                            # iterate through the current top 3 probabilities we have stored
-                            for j in range(len(top_prob)):
+                        # print(len(new_seq))
 
-                                # if the product we have is higher than any of these probabilities
-                                if prod > top_prob[j]: 
-                                    # if greater than the jth element, then insert in the jth position
-                                    top_prob.insert(j, prod)
-                                    # keep track of the sequence this tag is part of through i
-                                    top_prob_tags.insert(j, (tag2,i))
-                                    if len(top_prob) >= k: 
-                                        top_prob.pop()
-                                        top_prob_tags.pop()
-                                    # print(top_prob_tags)
-                                    lowestVal = False
-                                    break
+                    # we now have the top k or less probabilties based on uniqueness
+                    # now, we must replace the original with these
+                top_k_prob = []
+                top_k_seq = []
+                
+                sorted_keys = sorted(cur_k_seq.keys(), reverse=True)
+                
+                for p in sorted_keys: 
+                    top_k_seq.append(cur_k_seq[p][0])
+                    top_k_prob.append(p)
+
+                # print(top_k_seq)
                             
-                            if lowestVal and len(top_prob) < k: 
-                                top_prob.append(prod)
-                                top_prob_tags.append((tag2, i))
+            else: 
+                if self.unknowns: 
+                    for seq in top_k_seq:
+                        seq.append('NN')
+                else: 
+                    for seq in top_k_seq:
+                        prev = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                        seq.append(prev)
+            # print("EOW: ", len(top_k_seq[0]))
+    
+        # for seq in top_k_seq: 
+        #     if len(sequence) != len(seq): 
+        #         print("NOT EQUAL LENGTH")
+        sol = top_k_seq[0]
+        sol.append('.')
+        # print(sol)
+        return sol
+                        # lowestVal = True
+
+                        # if len(top_prob) == 0: 
+                        #     top_prob.append(prod)
+                        #     top_prob_tags.append((tag2, i))
+
+                        # else: 
+                        #     # iterate through the current top 3 probabilities we have stored
+                        #     for j in range(len(top_prob)):
+
+                        #         # if the product we have is higher than any of these probabilities
+                        #         if prod > top_prob[j]: 
+                        #             # if greater than the jth element, then insert in the jth position
+                        #             top_prob.insert(j, prod)
+                        #             # keep track of the sequence this tag is part of through i
+                        #             top_prob_tags.insert(j, (tag2,i))
+                        #             if len(top_prob) >= k: 
+                        #                 top_prob.pop()
+                        #                 top_prob_tags.pop()
+                        #             # print(top_prob_tags)
+                        #             lowestVal = False
+                        #             break
+                            
+                        #     if lowestVal and len(top_prob) < k: 
+                        #         top_prob.append(prod)
+                        #         top_prob_tags.append((tag2, i))
 
                     # print(len(top_prob_tags), top_prob_tags)  
                     # if wordOneFlag: 
                     #     wordOneFlag = False
                     #     break
 
-                seqs = [() for _ in range(len(top_prob))]
-                probs = [0 for _ in range(len(top_prob))]
+                # seqs = [() for _ in range(len(top_prob))]
+                # probs = [0 for _ in range(len(top_prob))]
 
-                for a in range(len(top_prob)):
-                    #print(seqs[a])
-                    seqs[a] = (*seqs[a],*tag_seq[top_prob_tags[a][1]])
-                    #print(seqs)
-                    seqs[a] = (*seqs[a],top_prob_tags[a][0])         
-                    probs[a] = tag_seq_prob[top_prob_tags[a][1]]
-                    probs[a] += top_prob[a]         
+                # for a in range(len(top_prob)):
+                #     #print(seqs[a])
+                #     seqs[a] = (*seqs[a],*tag_seq[top_prob_tags[a][1]])
+                #     #print(seqs)
+                #     seqs[a] = (*seqs[a],top_prob_tags[a][0])         
+                #     probs[a] = tag_seq_prob[top_prob_tags[a][1]]
+                #     probs[a] += top_prob[a]         
 
-                tag_seq = copy.deepcopy(seqs)
-                tag_seq_prob = copy.deepcopy(probs)
+                # tag_seq = copy.deepcopy(seqs)
+                # tag_seq_prob = copy.deepcopy(probs)
 
                 #print(tag_seq)
                 #print(tag_seq_prob)
 
                 # print(word)
                 # print(tag_seq_prob)
-
-            else: # for unknown words, we have assumed prob = 1, and noun
-                for seq in tag_seq:
-                    # seq.append('NN')
-                    seq = (*seq,'NN')
+   
         # print(tag_seq_prob)
 
             
-        index = tag_seq_prob.index(max(tag_seq_prob))
-        sol = tag_seq[index]
-        sol = list(sol)
-        sol.append('.')
-        #print(sol)
-        return sol
+        
 
     def viterbi (self, sequence):
         """ Tags a sequence with PoS tags

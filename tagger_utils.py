@@ -20,7 +20,7 @@ def infer_sentences(model, sentences, start):
     res = {}
     for i in range(len(sentences)):
         res[start+i] = model.inference(sentences[i])
-        #break
+        # break
     return res
     
 def compute_prob(model, sentences, tags, start):
@@ -39,7 +39,7 @@ def compute_prob(model, sentences, tags, start):
     res = {}
     for i in range(len(sentences)):
         res[start+i] = model.sequence_probability(sentences[i], tags[i])
-        #break
+        # break
     return res
     
 
