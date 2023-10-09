@@ -97,6 +97,8 @@ class POSTagger():
         self.k = 0.1
         self.smoothing = True # false is witten, true is add k
         self.unknowns = False # false is suffix, true is nouns 
+        self.beam_k = 3
+        self.model = 3
     
     
     def get_unigrams(self):
@@ -156,10 +158,7 @@ class POSTagger():
                 if count == 0: # bigram never occurs
                     self.bigrams[key[0],key[1]] = len(self.T[tag1])/denominator
                 else: 
-                    self.bigrams[key[0],key[1]] = (count)/denominator
-
-
-        
+                    self.bigrams[key[0],key[1]] = (count)/denominator     
             
     def get_trigrams(self):
         """
@@ -309,10 +308,12 @@ class POSTagger():
         # probably won't use this function. 
         ## TODO
 
-        # seq = self.greedy(sequence)
-        seq = self.beam(sequence, 3)
-        # seq = self.viterbi(sequence)
-
+        if self.model == 1: 
+            seq = self.greedy(sequence)
+        elif self.model == 2: 
+            seq = self.beam(sequence, self.beam_k)
+        elif self.model == 3: 
+            seq = self.viterbi(sequence)
         return seq
 
     def greedy (self, sequence):
@@ -346,6 +347,7 @@ class POSTagger():
                 else: # suffix tree mapping
                     prev = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
                     tagSeq.append(prev)
+        print(tagSeq)
         return tagSeq
 
     def beam(self, sequence, k):
@@ -404,8 +406,8 @@ class POSTagger():
                                     cur_k_seq_set.add(tuple(new_seq))
                                     del cur_k_seq[minProb]
              
-                    # we now have the top k or less probabilties based on uniqueness
-                    # now, we must replace the original with these
+                # we now have the top k or less probabilties based on uniqueness
+                # now, we must replace the original with these
                 top_k_prob = []
                 top_k_seq = []
                 
@@ -422,9 +424,12 @@ class POSTagger():
                     for seq in top_k_seq:
                         seq.append('NN')
                 else: 
-                    for seq in top_k_seq:
-                        prev = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
-                        seq.append(prev)
+                    for i in range(len(top_k_seq)):
+                        cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                        top_k_seq[i].append(cur_tag)
+                        q = self.bigrams[self.tag2idx[top_k_seq[i][-1]], self.tag2idx[cur_tag]]
+                        top_k_prob[i] += log(q)
+
 
         sol = top_k_seq[0]
         sol.append('.')
@@ -464,7 +469,7 @@ class POSTagger():
                         q = log(self.bigrams[self.tag2idx[tag_prev], self.tag2idx[tag_next]])
                         e = self.emissions[self.word2idx[word], self.tag2idx[tag_next]]
                         
-                        if e != 0: 
+                        if q*e != 0: 
                             e = log(e)
                         else: 
                             continue
@@ -489,8 +494,9 @@ class POSTagger():
                 else: # suffix tree mapping
                     for j in range(len(self.all_tags)): # go through each tag
                         tag_idx = self.tag2idx[self.suffix_to_tag.get(word[-3:], "NN")]  # default to noun if suffix not in mapping
-                        pi[i, j] = pi[i-1, j]
-                        bp[i,j] = tag_idx       
+                        max_prev_tag = self.all_tags[np.argmax(pi[i-1])]
+                        pi[i, j] = pi[i-1, j] + log(self.bigrams[self.tag2idx[max_prev_tag], tag_idx])
+                        bp[i,j] = self.tag2idx[max_prev_tag]    
 
         # Reconstruct the max sequence: 
 
@@ -521,7 +527,7 @@ class POSTagger():
         # print(max(pi[-1]))
         # print(bp)
         # print(seq)
-
+        
         return seq
 
 
