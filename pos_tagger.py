@@ -101,11 +101,11 @@ class POSTagger():
         self.k = 0.1
         self.delta = 0.75 # hyperparameter for kneyser ney smoothing
 
-        self.smoothing = False # false is witten (linear interpolation for trigrams), true is add k
+        self.smoothing = True # false is witten (linear interpolation for trigrams), true is add k
         self.unknowns = False # false is suffix, true is nouns 
         self.beam_k = 3
-        self.model = 2
-        self.kgram = 2 # 2 for bigrams, 3 for trigrams   
+        self.model = 3
+        self.kgram = 3 # 2 for bigrams, 3 for trigrams   
     
     def get_unigrams(self):
         """
@@ -620,13 +620,13 @@ class POSTagger():
                     # print(pi[:5])
                     
                     for j in range(len(self.all_tags)): # go through each tag
-                        tag_next = self.all_tags[j]
+                        cur_tag = self.all_tags[j]
 
                         for k in range(len(self.all_tags)): # go through each tag
-                            tag_prev = self.all_tags[k] 
+                            prev1 = self.all_tags[k] 
                             
-                            q = log(self.bigrams[self.tag2idx[tag_prev], self.tag2idx[tag_next]])
-                            e = self.emissions[self.word2idx[word], self.tag2idx[tag_next]]
+                            q = log(self.bigrams[self.tag2idx[prev1], self.tag2idx[cur_tag]])
+                            e = self.emissions[self.word2idx[word], self.tag2idx[cur_tag]]
                             
                             if q*e != 0: 
                                 e = log(e)
@@ -690,13 +690,15 @@ class POSTagger():
             return seq
         
         elif self.kgram == 3: 
-            pi = np.ones((len(sequence), len(self.all_tags)))
+               
+            pi = np.ones((len(sequence), len(self.all_tags), len(self.all_tags))) # 3d array = words x tags x tags
 
             pi *= -math.inf
             for i in range(len(self.all_tags)): # assign the probs to 1 at the start tag for EACH tag
-                pi[0,i] = 0
+                for j in range(len(self.all_tags)):
+                    pi[0,i,j] = 0
 
-            bp = np.zeros((len(sequence), len(self.all_tags)))
+            bp = np.zeros((len(sequence), len(self.all_tags), len(self.all_tags)))
 
             for i in range(1,len(sequence)): 
 
@@ -707,51 +709,59 @@ class POSTagger():
                     # print(word)
                     # print(pi[:5])
                     
-                    for j in range(len(self.all_tags)): # go through each tag
-                        tag_next = self.all_tags[j]
+                    for j in range(len(self.all_tags)): # go through each tag for the current word we are at
+                        cur_tag = self.all_tags[j]
 
-                        for k in range(len(self.all_tags)): # go through each tag
-                            tag_prev = self.all_tags[k] 
-                            
-                            q = log(self.bigrams[self.tag2idx[tag_prev], self.tag2idx[tag_next]])
-                            e = self.emissions[self.word2idx[word], self.tag2idx[tag_next]]
-                            
-                            if q*e != 0: 
-                                e = log(e)
-                            else: 
-                                continue
-                            
-                            prod = q+e
+                        for k in range(len(self.all_tags)): # go through each tag immediately preceeding tag
+                            prev1 = self.all_tags[k] # 1 before
 
-                            prod += pi[i-1, k]
-                            if prod > pi[i, j]: 
-                                pi[i, j] = prod
+                            for l in range(len(self.all_tags)): # go through the tags 2 steps back
+                                if i == 1: 
+                                    prev2 = 'O' # 2 before
+                                else: 
+                                    prev2 = self.all_tags[l] # 2 before
 
-                                # assign BP here
-                                bp[i, j] = k
+
+                                q = log(self.trigrams[self.tag2idx[prev2], self.tag2idx[prev1], self.tag2idx[cur_tag]])
+                                e = self.emissions[self.word2idx[word], self.tag2idx[cur_tag]]
+                                
+                                if q*e != 0: 
+                                    e = log(e)
+                                else: 
+                                    continue
+                                
+                                prod = q+e+pi[i-1, k, l]
+                                if prod > pi[i, j, k]: 
+                                    pi[i, j, k] = prod
+
+                                    # assign BP here
+                                    bp[i, j, k] = l
 
                 else: # suffix tree mapping
-
+                        
                         cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
                         j = self.tag2idx[cur_tag]
 
                         e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
 
-                        
-                        maxPtag = -math.inf  # Initialize with negative infinity
-                        
+                        if e != 0: 
+                            e = log(e)
+                        else: 
+                            continue
+
                         for k in range(len(self.all_tags)):  # Loop over all possible previous tags
-    
-                            q = self.bigrams[k, j]
                             
-                            # If q and e are both non-zero, compute the Viterbi score
-                            if q*e > 0:
-                                prob = log(q) + log(e) + pi[i-1, k]
-                                if prob > maxPtag:
-                                    maxPtag = prob
-                                    bp[i, j] = k
-                        
-                        pi[i, j] = maxPtag 
+                            for l in range(len(self.all_tags)):
+    
+                                q = log(self.trigrams[l, k, j])
+                                
+                                # If q and e are both non-zero, compute the Viterbi score
+                                prod = q + e + pi[i-1, k, l]
+                                if prod > pi[i, j, k]: 
+                                    pi[i, j, k] = prod
+
+                                    # assign BP here
+                                    bp[i, j, k] = l
 
             # Reconstruct the max sequence: 
 
@@ -760,13 +770,19 @@ class POSTagger():
             # Start with the last word's most probable tag
             seq[0] = 'O'
 
-            seq[-1] = self.idx2tag[np.argmax(pi[-1])]
+            arg1, arg2 = np.unravel_index(np.argmax(pi[i-1], axis=None), pi[i-1].shape)
 
+            seq[-1] = self.idx2tag[arg1]
             # Backtrack through the rest of the sequence
             for i in range(len(sequence)-2, 0, -1):
-                max_idx = np.argmax(pi[i+1])
-                seq[i] = self.idx2tag[int(bp[i+1, max_idx])]
+                arg1, arg2 = np.unravel_index(np.argmax(pi[i+1], axis=None), pi[i+1].shape)
+                seq[i] = self.idx2tag[int(bp[i+1, arg1, arg2])]
             
+            # arg1, arg2 = np.unravel_index(np.argmax(pi[-1], axis=None), pi[-1].shape)
+            
+            print("Max final probability:", np.max(pi[-1]))
+
+            print(unknownCount)
             return seq
 
 
