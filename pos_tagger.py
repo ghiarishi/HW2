@@ -92,20 +92,19 @@ class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
         
+        
+        self.unigramsCount = {} # count of each unique unigram 
+        self.bigramsCount = {} # count of each unique bigram
+        self.trigramsCount = {} # count of each unique trigram
+        self.emissionsCount = {} # count of each unique unigram
+
         # INPUT HERE
-        self.unigramsCount = {}
-        self.bigramsCount = {}
-        self.trigramsCount = {}
-        self.emissionsCount = {}
-        self.continuations = defaultdict(set)
+        self.k = 0.1 # add-k smoothing hyperparameter
 
-        self.k = 0.1 # add k smoothing hyperparameter
-
-        self.smoothing = True # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
-        self.model = 2 # 1 for greedy, 2 for beam, 3 for viterbi
+        self.smoothing = False # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
+        self.model = 3 # 1 for greedy, 2 for beam, 3 for viterbi
         self.kgram = 3 # 2 for bigrams, 3 for trigrams   
         self.beam_k = 3 # k parameter as input to beam search
-
     
     def get_unigrams(self):
         """
@@ -132,36 +131,34 @@ class POSTagger():
         """
         ## TODO
 
-        for tag1 in self.tag2idx: 
-            for tag2 in self.tag2idx: 
-                self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] = 0
+        tag2idx = self.tag2idx
 
-        # count the self.bigramsCount
+        # initialize the count of each bigram to 0
+        self.bigramsCount = {(tag2idx[tag1], tag2idx[tag2]): 0 for tag1 in tag2idx for tag2 in tag2idx}
+
+        # increment the count of a bigram by 1 each time it appears
         for sentence in self.data[1]: 
             for i in range(len(sentence)-1): 
                 tag1 = sentence[i]
                 tag2 = sentence[i+1]
                 self.bigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2])] += 1
 
-        # count total bigrams, and use it to divide
-
+        # calculate the transition probability 
         self.bigrams = np.zeros((len(self.all_tags), len(self.all_tags)))
         
-        # Implementing add-k smoothing, witten-bell smoothing
-
-
+        # smoothing
         for key, count in self.bigramsCount.items(): 
             tag1 = self.idx2tag[key[0]]
             tag2 = self.idx2tag[key[1]]
 
-            if self.smoothing: 
+
+            if self.smoothing: # add-k smoothing
                 denominator = self.unigramsCount[tag1] + self.k*self.V
                 self.bigrams[key[0],key[1]] = (count + self.k)/denominator
             
-            else: 
+            else: # witten-bell smoothing
                 denominator = (len(self.T[tag1]) + self.unigramsCount[tag1])
-
-                if count == 0: # bigram never occurs
+                if count == 0: # case where bigram never occurs
                     self.bigrams[key[0],key[1]] = len(self.T[tag1])/denominator
                 else: 
                     self.bigrams[key[0],key[1]] = (count)/denominator     
@@ -173,20 +170,22 @@ class POSTagger():
         """
         tag2idx = self.tag2idx
         all_tags_len = len(self.all_tags)
+
+        # initialize the count of each trigram to 0
         trigramsCount = {(tag2idx[tag1], tag2idx[tag2], tag2idx[tag3]): 0 for tag1 in tag2idx for tag2 in tag2idx for tag3 in tag2idx}
         
-        # count the trigramsCount
+        # increment the count of each trigram by 1 when it appears
         for sentence in self.data[1]: 
             for i in range(1, len(sentence)):
+                # handle the case where we need two start tags (for the first word after 'O')
                 tag1 = 'O' if i == 1 else sentence[i-2]
                 tag2 = 'O' if i == 1 else sentence[i-1]
                 tag3 = sentence[i]
                 
                 trigram_key = (tag2idx[tag1], tag2idx[tag2], tag2idx[tag3])
                 trigramsCount[trigram_key] += 1
-                self.continuations[tag2idx[tag3]].add((tag2idx[tag1], tag2idx[tag2]))
 
-        # Implementing add-k smoothing 
+        
         trigrams = np.zeros((all_tags_len, all_tags_len, all_tags_len))
         bigramsCount = self.bigramsCount
         unigramsCount = self.unigramsCount
@@ -199,12 +198,13 @@ class POSTagger():
             tag1_idx, tag2_idx, tag3_idx = trigram
             tag1, tag2, tag3 = idx2tag[tag1_idx], idx2tag[tag2_idx], idx2tag[tag3_idx]
 
-            if self.smoothing: 
+            if self.smoothing: # add-k smoothing
                 denominator = bigramsCount[tag1_idx, tag2_idx] + k * V
                 trigrams[tag1_idx, tag2_idx, tag3_idx] = (count + k) / denominator
-            else: 
-                # linear interpolation HERE
-                lambda1, lambda2, lambda3 = 1/3, 1/3, 1/3  # for unigram, bigram, trigram
+            
+            else: # linear interpolation 
+                # hyperparameter values for unigrams, bigrams, and trigrams
+                lambda1, lambda2, lambda3 = 1/3, 1/3, 1/3  
 
                 # Fetch the required counts/probabilities
                 bigram_count = bigramsCount.get((tag2_idx, tag3_idx), 0)
@@ -212,7 +212,6 @@ class POSTagger():
                 bigram_prob = bigram_count / unigramsCount[tag2]
                 unigram_prob = unigramsCount[tag3] / N
 
-                # Linear interpolation
                 interpolated_prob = lambda3 * trigram_prob + lambda2 * bigram_prob + lambda1 * unigram_prob
                 trigrams[tag1_idx, tag2_idx, tag3_idx] = interpolated_prob
 
@@ -227,19 +226,23 @@ class POSTagger():
         Probability of word given a tag, to find this you need to count instances of the word, given a tag
         """
         ## TODO
-        
-        for i in range(len(self.data[0])): 
-            for j in range(len(self.data[0][i])):
-                if (self.data[0][i][j], self.tag2idx[self.data[1][i][j]]) not in self.emissionsCount: 
-                    self.emissionsCount[(self.data[0][i][j], self.tag2idx[self.data[1][i][j]])] = 1
+        data = self.data
+        tag2idx = self.tag2idx
+        idx2tag = self.idx2tag
+
+        # iterate through every word
+        for i in range(len(data[0])): 
+            for j in range(len(data[0][i])):
+                if (data[0][i][j], tag2idx[data[1][i][j]]) not in self.emissionsCount: 
+                    self.emissionsCount[(data[0][i][j], tag2idx[data[1][i][j]])] = 1
                 else: 
-                    self.emissionsCount[(self.data[0][i][j], self.tag2idx[self.data[1][i][j]])] += 1
+                    self.emissionsCount[(data[0][i][j], tag2idx[data[1][i][j]])] += 1
 
         self.emissions = np.zeros((len(self.all_words),len(self.all_tags)))
 
+        # calculate the emission probabilities
         for key,value in self.emissionsCount.items():
-          
-            denom = self.unigramsCount[self.idx2tag[key[1]]]
+            denom = self.unigramsCount[idx2tag[key[1]]]
             self.emissions[self.word2idx[key[0]], key[1]] = value/denom
 
 
@@ -253,27 +256,28 @@ class POSTagger():
         """
         self.data = data  # data[0] has all the words in the data set
 
-
         self.all_tags = list(set([t for tag in data[1] for t in tag]))  # This is the list of all the PoS tags in the dataset. 
 
         self.all_words = list(set([word for sentence in data[0] for word in sentence]))  # This is the list of all the PoS tags in the dataset. 
+        
         self.word2idx = {self.all_words[i]:i for i in range(len(self.all_words))}  # This is basically a dictionary of Tag : id 
+        
         self.idx2word = {v:k for k,v in self.word2idx.items()}    # And this basically is a dictionary of id: Tag
 
-
         self.tag2idx = {self.all_tags[i]:i for i in range(len(self.all_tags))}  # This is basically a dictionary of Tag : id 
+        
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}    # And this basically is a dictionary of id: Tag
 
         
-       
 
-        self.T = {key: set() for key in self.all_tags}
+        ## TODO
+        # number of unique tags appearing after each tag
+        self.T = {key: set() for key in self.all_tags} # used for witten bell smoothing
         
         for sentence in data[1]:
             for i in range(len(sentence)-1):
                 self.T[sentence[i]].add(sentence[i+1])
 
-        ## TODO
         # count of each tag 
         for tag in self.all_tags: 
             self.unigramsCount[tag] = 0
@@ -281,7 +285,6 @@ class POSTagger():
             for tag in sentence: 
                 self.unigramsCount[tag] += 1
 
-        
         self.N = sum(self.unigramsCount.values())
         
         self.V = len(set(self.word2idx.keys()))
@@ -290,24 +293,27 @@ class POSTagger():
 
         self.get_bigrams()
 
-        self.bigram2idx = {tup:idx for idx,tup in enumerate(self.bigramsCount.keys())} 
-        self.idx2bigram = {idx:tup for tup,idx in self.bigram2idx.items()} 
-
         self.get_trigrams()
 
         self.get_emissions()
 
-        # Build the suffix mapping
+        # map each bigram to an index, and vice-versa
+        self.bigram2idx = {tup:idx for idx,tup in enumerate(self.bigramsCount.keys())} 
+
+        self.idx2bigram = {idx:tup for tup,idx in self.bigram2idx.items()} 
+
+        # Build the suffix mapping to deal with unknown words
         self.suffixes = defaultdict(Counter)
         for sentence, tag_seq in zip(data[0], data[1]):
             for word, tag in zip(sentence, tag_seq):
-                # Here, we take the last 3 characters as the suffix; this number can be tuned
+                # Here, we take the last 3 characters as the suffix
                 self.suffixes[word[-3:]].update([tag])
-        # Build the prefix mapping
+
+        # Build the prefix mapping to deal with unknown words
         self.prefixes = defaultdict(Counter)
         for sentence, tag_seq in zip(data[0], data[1]):
             for word, tag in zip(sentence, tag_seq):
-                # Here, we take the last 3 characters as the suffix; this number can be tuned
+                # Here, we take the first 2 characters as the prefix
                 self.prefixes[word[2:]].update([tag])
                 
         # Choose the most common tag for each suffix
@@ -319,8 +325,7 @@ class POSTagger():
         probabilities.
         """
         ## TODO
-
-        
+       
         prob = 1
         for i in range(1, len(sequence)):
             # probability of word given the tag
@@ -348,6 +353,7 @@ class POSTagger():
         # probably won't use this function. 
         ## TODO
 
+        # run the correct model based on the given self.model value
         if self.model == 1: 
             seq = self.greedy(sequence)
         elif self.model == 2: 
@@ -577,7 +583,6 @@ class POSTagger():
         word2idx = self.word2idx
         N = self.N
 
-        unknownCount = 0
         if self.kgram == 2: 
             pi = np.full((len(sequence), len(self.all_tags)), -math.inf)
 
@@ -604,39 +609,34 @@ class POSTagger():
                                     bp[i, j] = k
 
                 else: # if word is unknown
-                    if self.unknowns: 
-                        for j in range(len(self.all_tags)): # go through each tag
-                            pi[i, j] = pi[i-1, j]
-                            bp[i,j] = bp[i-1,j]
+                    
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
 
-                    else: # suffix tree mapping
-                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                    if(cur_tag == None):
 
-                        if(cur_tag == None):
+                        if(word[0].isupper()):
+                            cur_tag = "NNP"
+                        else:
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            if(cur_tag == None):
+                                cur_tag = "NN"
 
-                            if(word[0].isupper()):
-                                cur_tag = "NNP"
-                            else:
-                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
-                                if(cur_tag == None):
-                                    cur_tag = "NN"
+                    j = self.tag2idx[cur_tag]
+                    e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
+                    maxPtag = -math.inf  # Initialize with negative infinity
+                    
+                    for k in range(len(self.all_tags)):  # Loop over all possible previous tags
 
-                        j = self.tag2idx[cur_tag]
-                        e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
-                        maxPtag = -math.inf  # Initialize with negative infinity
+                        q = self.bigrams[k, j]
                         
-                        for k in range(len(self.all_tags)):  # Loop over all possible previous tags
-    
-                            q = self.bigrams[k, j]
-                            
-                            # If q and e are both non-zero, compute the Viterbi score
-                            if q*e > 0:
-                                prob = log(q) + log(e) + pi[i-1, k]
-                                if prob > maxPtag:
-                                    maxPtag = prob
-                                    bp[i, j] = k
-                        
-                        pi[i, j] = maxPtag 
+                        # If q and e are both non-zero, compute the Viterbi score
+                        if q*e > 0:
+                            prob = log(q) + log(e) + pi[i-1, k]
+                            if prob > maxPtag:
+                                maxPtag = prob
+                                bp[i, j] = k
+                    
+                    pi[i, j] = maxPtag 
 
             # Reconstruct the max sequence:            
             seq = ['O'] + [''] * (len(sequence) - 2) + [self.idx2tag[np.argmax(pi[-1])]]
@@ -679,47 +679,40 @@ class POSTagger():
 
         
                 else: # if word is unknown
-                    unknownCount += 1
-                    if self.unknowns: 
-                        for j in range(len(self.all_tags)): # go through each tag
-                            pi[i, j] = pi[i-1, j]
-                            bp[i,j] = bp[i-1,j]
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
 
-                    else: # suffix tree mapping
-                        cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                    if(cur_tag == None):
 
-                        if(cur_tag == None):
+                        if(word[0].isupper()):
+                            cur_tag = "NNP"
+                        else:
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            if(cur_tag == None):
+                                cur_tag = "NN"
+                    
+                    j = self.tag2idx[cur_tag]
 
-                            if(word[0].isupper()):
-                                cur_tag = "NNP"
-                            else:
-                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
-                                if(cur_tag == None):
-                                    cur_tag = "NN"
+                    e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
+
+                    maxPtag = -math.inf  # Initialize with negative infinity
+                    
+                    index = 0
+                    for k in self.bigramsCount.keys():  # Loop over all possible previous bigrams
+                        q = self.trigrams[k[0],k[1], j]
+
+                        new_bigram = (k[1], self.tag2idx[cur_tag])
                         
-                        j = self.tag2idx[cur_tag]
+                        bigram_idx = self.bigram2idx[new_bigram]
 
-                        e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
-
-                        maxPtag = -math.inf  # Initialize with negative infinity
-                        
-                        index = 0
-                        for k in self.bigramsCount.keys():  # Loop over all possible previous bigrams
-                            q = self.trigrams[k[0],k[1], j]
-
-                            new_bigram = (k[1], self.tag2idx[cur_tag])
+                        # If q and e are both non-zero, compute the Viterbi score
+                        if e > 0:
+                            prob = log(q) + log(e) + pi[i-1, index]
                             
-                            bigram_idx = self.bigram2idx[new_bigram]
-
-                            # If q and e are both non-zero, compute the Viterbi score
-                            if e > 0:
-                                prob = log(q) + log(e) + pi[i-1, index]
-                                
-                                if prob > maxPtag:
-                                    maxPtag = prob
-                                    bp[i, bigram_idx] = k[1]
-                                    pi[i, bigram_idx] = maxPtag 
-                            index+=1 
+                            if prob > maxPtag:
+                                maxPtag = prob
+                                bp[i, bigram_idx] = k[1]
+                                pi[i, bigram_idx] = maxPtag 
+                        index+=1 
 
             # Reconstruct the max sequence: 
             seq = ['O'] + [''] * (len(sequence) - 2) + [idx2tag[idx2bigram[np.argmax(pi[-1])][1]]]
