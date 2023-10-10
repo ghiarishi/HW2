@@ -24,15 +24,15 @@ def infer_sentences(model, sentences, start):
     """
     res = {}
 
-    start_time = time.time()
+    # start_time = time.time()
 
     for i in range(len(sentences)):
         res[start+i] = model.inference(sentences[i])
         # break
     
-    end_time = time.time()
+    # end_time = time.time()
 
-    print(end_time-start_time)
+    # print(end_time-start_time)
     return res
 
     
