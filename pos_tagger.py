@@ -101,7 +101,7 @@ class POSTagger():
         # INPUT HERE
         self.k = 0.1 # add-k smoothing hyperparameter
 
-        self.smoothing = False # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
+        self.smoothing = True # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
         self.model = 3 # 1 for greedy, 2 for beam, 3 for viterbi
         self.kgram = 3 # 2 for bigrams, 3 for trigrams   
         self.beam_k = 3 # k parameter as input to beam search
@@ -366,49 +366,59 @@ class POSTagger():
         """ Tags a sequence with PoS tags
 
         Implements Greedy decoding"""
-        # ## TODO 
-
+        ## TODO 
+        
+        # bigram case
         if self.kgram == 2: 
-            prev = 'O' # as this is start word
+            
+            # set the starting tag to 'O'
+            prev = 'O'
             tagSeq = ['O']
-            for word in sequence[1:]: 
-                # probability of word given the tag
+
+            for word in sequence[1:]: # iterate through every word after the start word
+        
                 maxi = 0
                 maxTag = ''
 
-                if word in self.word2idx:
+                if word in self.word2idx: # known word
+
+                    # iterate through all tags, and identify the previous tag that leads to the maximum bigram transition probability
                     for tag2 in self.all_tags: 
-                        q = self.bigrams[self.tag2idx[prev], self.tag2idx[tag2]]
+                        q = self.bigrams[self.tag2idx[prev], self.tag2idx[tag2]] # calculate bigram transition probability
                         e = self.emissions[self.word2idx[word], self.tag2idx[tag2]]
                         if q*e > maxi: 
                             maxTag = tag2
                             maxi = q*e
                     prev = maxTag
                     tagSeq.append(maxTag)
-                else: 
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+
+                else: # deal with unknown words 
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
                     if(cur_tag == None):
-                        if(word[0].isupper()):
+                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
                             cur_tag = "NNP"
                         else:
-                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
-                                cur_tag = "NN"
+                                cur_tag = "NN" # if none of the above conditions true, default to noun 
                     tagSeq.append(cur_tag)
             return tagSeq
-        elif self.kgram == 3: 
-            prev1 = 'O' # as this is start word (the one just before current)
-            prev2 = 'O' # the one 2 tags back
+        
+        elif self.kgram == 3: # trigram case
+
+            # set both prev tags to 'O' to get the first transition probability
+            prev1 = 'O' # prev1 is the tag right before the current tag
+            prev2 = 'O' # prev2 is the tag 2 tags back from the current tag
+
             tagSeq = ['O']
-            for word in sequence[1:]: 
-                # probability of word given the tag
+            
+            for word in sequence[1:]:  # iterate through all words in the sequence after the first one
                 maxi = 0
                 maxTag = ''
-                # self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
-            
-                if word in self.word2idx:
+
+                if word in self.word2idx: # known case
                     for tag2 in self.all_tags: 
-                        q = self.trigrams[self.tag2idx[prev2], self.tag2idx[prev1], self.tag2idx[tag2]]
+                        q = self.trigrams[self.tag2idx[prev2], self.tag2idx[prev1], self.tag2idx[tag2]] # calculate trigram probability
                         e = self.emissions[self.word2idx[word], self.tag2idx[tag2]]
                         if q*e > maxi: 
                             maxTag = tag2
@@ -416,15 +426,16 @@ class POSTagger():
                     prev2 = prev1
                     prev1 = maxTag
                     tagSeq.append(maxTag)
-                else: 
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                
+                else: # unknown case 
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
                     if(cur_tag == None):
-                        if(word[0].isupper()):
+                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
                             cur_tag = "NNP"
                         else:
-                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
-                                cur_tag = "NN"
+                                cur_tag = "NN" # if none of the above conditions true, default to noun
                     tagSeq.append(cur_tag)
             return tagSeq
 
@@ -438,17 +449,26 @@ class POSTagger():
         unigramsCount = self.unigramsCount
         N = self.N
     
-        if self.kgram == 2:
+        if self.kgram == 2: # bigram case
+
+            # store the overall most probable k sequences and their probabilities
             top_k_seq = [['O'] for _ in range(k)]
             top_k_prob = [0] * k
 
             for word in sequence[1:-1]:
-                if word in word2idx:
+
+                if word in word2idx: # known case
                     word_idx = word2idx[word]
+
+                    # dict to store probabilities, and their respective sequences, and parent sequence indices
                     cur_k_seq = {}
+                    
+                    # set to store the current top k sequences that are in the above dict 
                     cur_k_seq_set = set()
 
+                    # iterate through the current top k sequences
                     for i, parent in enumerate(top_k_seq):
+
                         parent_prob = top_k_prob[i]
                         last_tag_idx = tag2idx[parent[-1]]
 
@@ -457,17 +477,21 @@ class POSTagger():
                             q = bigrams[last_tag_idx, tag_idx]
                             e = emissions[word_idx, tag_idx]
                             
-                            if q * e == 0:
-                                continue
-
+                            if e == 0: continue
+                            
+                            # use log prob to avoid zeroing out of probabilities 
                             prob = log(q) + log(e) + parent_prob
                             new_seq = parent + [tag]
 
+                            # the set ensures we do not add in a duplicate sequence
                             if tuple(new_seq) not in cur_k_seq_set:
+
+                                # add in a sequence without checking if we have under k sequences
                                 if len(cur_k_seq_set) < k:
                                     cur_k_seq_set.add(tuple(new_seq))
                                     cur_k_seq[prob] = new_seq
-                                else:
+
+                                else: # replace mininum probability sequence with higher probability sequence
                                     minProb = min(cur_k_seq.keys())
                                     if prob > minProb:
                                         remove_seq = cur_k_seq.pop(minProb)
@@ -480,15 +504,15 @@ class POSTagger():
 
                 else:
                     for i, seq in enumerate(top_k_seq):
-                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
                         if(cur_tag == None):
 
-                            if(word[0].isupper()):
+                            if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
                                 cur_tag = "NNP"
                             else:
-                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                                 if(cur_tag == None):
-                                    cur_tag = "NN"
+                                    cur_tag = "NN" # if none of the above conditions true, default to noun
                         seq.append(cur_tag)
                         
                         last_tag_idx = tag2idx[seq[-1]]
@@ -497,20 +521,29 @@ class POSTagger():
                         e = unigramsCount[cur_tag] / N
                         top_k_prob[i] += log(q) + log(e)
 
+            # return the highest probability sequence from the top k identified
             sol = top_k_seq[0]
             sol.append('.')
             return sol
 
         elif self.kgram == 3:
+
+            # store the overall most probable k sequences and their probabilities
             top_k_seq = [['O', 'O'] for _ in range(k)]
             top_k_prob = [0] * k
 
             for word in sequence[1:-1]:
-                if word in word2idx:
+
+                if word in word2idx: # known case
                     word_idx = word2idx[word]
+
+                    # dict to store probabilities, and their respective sequences, and parent sequence indices
                     cur_k_seq = {}
+                    
+                    # set to store the current top k sequences that are in the above dict 
                     cur_k_seq_set = set()
 
+                    # iterate through the current top k sequences
                     for i, parent in enumerate(top_k_seq):
                         parent_prob = top_k_prob[i]
                         last_two_tags_idx = (tag2idx[parent[-2]], tag2idx[parent[-1]])
@@ -520,17 +553,21 @@ class POSTagger():
                             q = trigrams[last_two_tags_idx + (tag_idx,)]
                             e = emissions[word_idx, tag_idx]
 
-                            if q * e == 0:
-                                continue
+                            if e == 0: continue
                             
+                            # use log prob to avoid zeroing out of probabilities 
                             prob = log(q) + log(e) + parent_prob
                             new_seq = parent + [tag]
 
+                            # the set ensures we do not add in a duplicate sequence
                             if tuple(new_seq) not in cur_k_seq_set:
+                                
+                                # add in a sequence without checking if we have under k sequences
                                 if len(cur_k_seq_set) < k:
                                     cur_k_seq_set.add(tuple(new_seq))
                                     cur_k_seq[prob] = new_seq
-                                else:
+
+                                else: # replace mininum probability sequence with higher probability sequence
                                     minProb = min(cur_k_seq.keys())
                                     if prob > minProb:
                                         remove_seq = cur_k_seq.pop(minProb)
@@ -543,14 +580,14 @@ class POSTagger():
 
                 else:
                     for i, seq in enumerate(top_k_seq):
-                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
                         if(cur_tag == None):
-                            if(word[0].isupper()):
+                            if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
                                 cur_tag = "NNP"
                             else:
-                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                                 if(cur_tag == None):
-                                    cur_tag = "NN"
+                                    cur_tag = "NN" # if none of the above conditions true, default to noun
                         seq.append(cur_tag)
                         
                         last_two_tags_idx = (tag2idx[seq[-2]], tag2idx[seq[-1]])
@@ -559,6 +596,7 @@ class POSTagger():
                         e = unigramsCount[cur_tag] / N
                         top_k_prob[i] += log(q) + log(e)
 
+            # return the highest probability sequence from the top k identified
             sol = top_k_seq[0]
             sol.append('.')
             sol.pop(0)
@@ -610,16 +648,16 @@ class POSTagger():
 
                 else: # if word is unknown
                     
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
 
                     if(cur_tag == None):
 
-                        if(word[0].isupper()):
+                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
                             cur_tag = "NNP"
                         else:
-                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
-                                cur_tag = "NN"
+                                cur_tag = "NN" # if none of the above conditions true, default to noun
 
                     j = self.tag2idx[cur_tag]
                     e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
@@ -679,16 +717,16 @@ class POSTagger():
 
         
                 else: # if word is unknown
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
 
                     if(cur_tag == None):
 
-                        if(word[0].isupper()):
+                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
                             cur_tag = "NNP"
                         else:
-                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
-                                cur_tag = "NN"
+                                cur_tag = "NN" # if none of the above conditions true, default to noun
                     
                     j = self.tag2idx[cur_tag]
 
