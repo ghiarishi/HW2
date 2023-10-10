@@ -26,7 +26,7 @@ def infer_sentences(model, sentences, start):
 
     start_time = time.time()
 
-    for i in range(10): #len(sentences)):
+    for i in range(len(sentences)):
         res[start+i] = model.inference(sentences[i])
         # break
     

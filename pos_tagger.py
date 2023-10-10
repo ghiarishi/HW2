@@ -826,11 +826,11 @@ class POSTagger():
                         e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
 
                         
+                        maxPtag = -math.inf  # Initialize with negative infinity
                         
                         index = 0
                         for k in self.bigramsCount.keys():  # Loop over all possible previous bigrams
                             
-                            maxPtag = -math.inf  # Initialize with negative infinity
 
                             q = self.trigrams[k[0],k[1], j]
 
@@ -845,8 +845,8 @@ class POSTagger():
                                 if prob > maxPtag:
                                     maxPtag = prob
                                     bp[i, bigram_idx] = k[1]
+                                    pi[i, bigram_idx] = maxPtag 
                             index+=1 
-                            pi[i, bigram_idx] = maxPtag 
 
             # Reconstruct the max sequence: 
 
