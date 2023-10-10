@@ -4,6 +4,11 @@ import numpy as np
 import seaborn as sn
 import matplotlib.pyplot as plt
 from tagger_constants import *
+import time
+
+# Start the stopwatch
+
+
 
 
 def infer_sentences(model, sentences, start):
@@ -18,10 +23,18 @@ def infer_sentences(model, sentences, start):
         dict: index, predicted tags for each sentence in sentences
     """
     res = {}
-    for i in range(len(sentences)):
+
+    start_time = time.time()
+
+    for i in range(10): #len(sentences)):
         res[start+i] = model.inference(sentences[i])
-        break
+        # break
+    
+    end_time = time.time()
+
+    print(end_time-start_time)
     return res
+
     
 def compute_prob(model, sentences, tags, start):
     """
@@ -39,7 +52,6 @@ def compute_prob(model, sentences, tags, start):
     res = {}
     for i in range(len(sentences)):
         res[start+i] = model.sequence_probability(sentences[i], tags[i])
-        break
     return res
     
 

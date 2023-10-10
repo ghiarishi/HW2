@@ -41,8 +41,11 @@ def evaluate(data, model):
     start = time.time()
     pool = Pool(processes=processes)
     res = []
+
     for i in range(0, n, k):
         res.append(pool.apply_async(infer_sentences, [model, sentences[i:i+k], i]))
+    
+
     ans = [r.get(timeout=None) for r in res]
     predictions = dict()
     for a in ans:
@@ -92,7 +95,7 @@ class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
         
-        # INPUTS HERE
+        # INPUT HERE
         self.unigramsCount = {}
         self.bigramsCount = {}
         self.trigramsCount = {}
@@ -105,7 +108,7 @@ class POSTagger():
         self.smoothing = True # false is witten (linear interpolation for trigrams), true is add k
         self.unknowns = False # false is suffix, true is nouns 
         self.beam_k = 3
-        self.model = 3
+        self.model = 2
         self.kgram = 3 # 2 for bigrams, 3 for trigrams   
     
     def get_unigrams(self):
@@ -166,68 +169,120 @@ class POSTagger():
                     self.bigrams[key[0],key[1]] = len(self.T[tag1])/denominator
                 else: 
                     self.bigrams[key[0],key[1]] = (count)/denominator     
-            
+
     def get_trigrams(self):
         """
         Computes trigrams. 
         Tip. Similar logic to unigrams and bigrams. Store in numpy array. 
         """
-        ## TODO
-
-        # PREPEND ONE EXTRA START : Lecture 4 slide 19
-
-        # Maybe, we will make a 3D np array, with all the possibilities and initialize them to 0. 
-
-        for tag1 in self.tag2idx: 
-            for tag2 in self.tag2idx: 
-                for tag3 in self.tag2idx:
-                    self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
+        tag2idx = self.tag2idx
+        all_tags_len = len(self.all_tags)
+        trigramsCount = {(tag2idx[tag1], tag2idx[tag2], tag2idx[tag3]): 0 for tag1 in tag2idx for tag2 in tag2idx for tag3 in tag2idx}
         
-        # count the self.trigramsCount
+        # count the trigramsCount
         for sentence in self.data[1]: 
-            for i in range(1,len(sentence)):
-                if i ==1:
-                    tag1 = 'O'
-                    tag2 = 'O'
-                else:  
-                    tag1 = sentence[i-2]
-                    tag2 = sentence[i-1]
+            for i in range(1, len(sentence)):
+                tag1 = 'O' if i == 1 else sentence[i-2]
+                tag2 = 'O' if i == 1 else sentence[i-1]
                 tag3 = sentence[i]
-                self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2], self.tag2idx[tag3])] += 1
-                self.continuations[self.tag2idx[tag3]].add((self.tag2idx[tag1], self.tag2idx[tag2]))
-
+                
+                trigram_key = (tag2idx[tag1], tag2idx[tag2], tag2idx[tag3])
+                trigramsCount[trigram_key] += 1
+                self.continuations[tag2idx[tag3]].add((tag2idx[tag1], tag2idx[tag2]))
 
         # Implementing add-k smoothing 
-        
-        self.trigrams = np.zeros((len(self.all_tags), len(self.all_tags),len(self.all_tags)))
+        trigrams = np.zeros((all_tags_len, all_tags_len, all_tags_len))
+        bigramsCount = self.bigramsCount
+        unigramsCount = self.unigramsCount
+        idx2tag = self.idx2tag
+        k = self.k
+        V = self.V
+        N = self.N
 
-        for trigram, count in self.trigramsCount.items(): 
-            tag1 = self.idx2tag[trigram[0]]
-            tag2 = self.idx2tag[trigram[1]]
-            tag3 = self.idx2tag[trigram[2]]
+        for trigram, count in trigramsCount.items(): 
+            tag1_idx, tag2_idx, tag3_idx = trigram
+            tag1, tag2, tag3 = idx2tag[tag1_idx], idx2tag[tag2_idx], idx2tag[tag3_idx]
 
             if self.smoothing: 
-                denominator = self.bigramsCount[self.tag2idx[tag1],self.tag2idx[tag2]] + self.k*self.V 
-                self.trigrams[trigram[0],trigram[1],trigram[2]] = (count + self.k)/denominator
+                denominator = bigramsCount[tag1_idx, tag2_idx] + k * V
+                trigrams[tag1_idx, tag2_idx, tag3_idx] = (count + k) / denominator
             else: 
                 # linear interpolation HERE
-                lambda1 = 1/3  # for unigram
-                lambda2 = 1/3 # for bigram
-                lambda3 = 1/3 # for trigram
+                lambda1, lambda2, lambda3 = 1/3, 1/3, 1/3  # for unigram, bigram, trigram
 
-                 # Fetch the required counts/probabilities
-             
-                if self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]] == 0: 
-                    trigram_prob = 0
-                else:
-                    trigram_prob = count / self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]]
-                bigram_prob = self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]] / self.unigramsCount[tag2]
-                unigram_prob = self.unigramsCount[tag3] / self.N
- 
+                # Fetch the required counts/probabilities
+                bigram_count = bigramsCount.get((tag2_idx, tag3_idx), 0)
+                trigram_prob = 0 if bigram_count == 0 else count / bigram_count
+                bigram_prob = bigram_count / unigramsCount[tag2]
+                unigram_prob = unigramsCount[tag3] / N
+
                 # Linear interpolation
                 interpolated_prob = lambda3 * trigram_prob + lambda2 * bigram_prob + lambda1 * unigram_prob
+                trigrams[tag1_idx, tag2_idx, tag3_idx] = interpolated_prob
 
-                self.trigrams[trigram[0],trigram[1],trigram[2]] = interpolated_prob
+        self.trigrams = trigrams
+
+    # def get_trigrams(self):
+    #     """
+    #     Computes trigrams. 
+    #     Tip. Similar logic to unigrams and bigrams. Store in numpy array. 
+    #     """
+    #     ## TODO
+
+    #     # PREPEND ONE EXTRA START : Lecture 4 slide 19
+
+    #     # Maybe, we will make a 3D np array, with all the possibilities and initialize them to 0. 
+
+    #     for tag1 in self.tag2idx: 
+    #         for tag2 in self.tag2idx: 
+    #             for tag3 in self.tag2idx:
+    #                 self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
+        
+    #     # count the self.trigramsCount
+    #     for sentence in self.data[1]: 
+    #         for i in range(1,len(sentence)):
+    #             if i ==1:
+    #                 tag1 = 'O'
+    #                 tag2 = 'O'
+    #             else:  
+    #                 tag1 = sentence[i-2]
+    #                 tag2 = sentence[i-1]
+    #             tag3 = sentence[i]
+    #             self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2], self.tag2idx[tag3])] += 1
+    #             self.continuations[self.tag2idx[tag3]].add((self.tag2idx[tag1], self.tag2idx[tag2]))
+
+
+    #     # Implementing add-k smoothing 
+        
+    #     self.trigrams = np.zeros((len(self.all_tags), len(self.all_tags),len(self.all_tags)))
+
+    #     for trigram, count in self.trigramsCount.items(): 
+    #         tag1 = self.idx2tag[trigram[0]]
+    #         tag2 = self.idx2tag[trigram[1]]
+    #         tag3 = self.idx2tag[trigram[2]]
+
+    #         if self.smoothing: 
+    #             denominator = self.bigramsCount[self.tag2idx[tag1],self.tag2idx[tag2]] + self.k*self.V 
+    #             self.trigrams[trigram[0],trigram[1],trigram[2]] = (count + self.k)/denominator
+    #         else: 
+    #             # linear interpolation HERE
+    #             lambda1 = 1/3  # for unigram
+    #             lambda2 = 1/3 # for bigram
+    #             lambda3 = 1/3 # for trigram
+
+    #              # Fetch the required counts/probabilities
+             
+    #             if self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]] == 0: 
+    #                 trigram_prob = 0
+    #             else:
+    #                 trigram_prob = count / self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]]
+    #             bigram_prob = self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]] / self.unigramsCount[tag2]
+    #             unigram_prob = self.unigramsCount[tag3] / self.N
+ 
+    #             # Linear interpolation
+    #             interpolated_prob = lambda3 * trigram_prob + lambda2 * bigram_prob + lambda1 * unigram_prob
+
+    #             self.trigrams[trigram[0],trigram[1],trigram[2]] = interpolated_prob
 
     def get_emissions(self):
         """
@@ -590,8 +645,14 @@ class POSTagger():
                             top_k_prob[i] += log(q) + log(e)
 
             sol = top_k_seq[0]
+            
             sol.append('.')
             sol.pop(0)
+
+            # print(sol)
+
+            # print("Sequence P for Beam (trigram)", top_k_prob[0])
+            # print(unknownCount)
             return sol       
 
     def viterbi (self, sequence):
@@ -722,17 +783,17 @@ class POSTagger():
 
                             if i == 1: 
                                 prev = (0, 0)
+                                q = log(self.bigrams[prev[0], self.tag2idx[cur_tag]])
                             else: 
                                 prev = k
-                            
-                            q = log(self.trigrams[prev[0], prev[1], self.tag2idx[cur_tag]])
+                                q = log(self.trigrams[prev[0], prev[1], self.tag2idx[cur_tag]])
                             e = self.emissions[self.word2idx[word], self.tag2idx[cur_tag]]
                             
                             if e > 0: 
                                 e = log(e)
                             else: 
                                 continue
-                            
+
                             
                             prod = q + e + pi[i-1, index] 
 
@@ -765,11 +826,12 @@ class POSTagger():
                         e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
 
                         
-                        maxPtag = -math.inf  # Initialize with negative infinity
                         
                         index = 0
                         for k in self.bigramsCount.keys():  # Loop over all possible previous bigrams
-    
+                            
+                            maxPtag = -math.inf  # Initialize with negative infinity
+
                             q = self.trigrams[k[0],k[1], j]
 
                             new_bigram = (k[1], self.tag2idx[cur_tag])
@@ -777,7 +839,7 @@ class POSTagger():
                             bigram_idx = self.bigram2idx[new_bigram]
 
                             # If q and e are both non-zero, compute the Viterbi score
-                            if e>0:
+                            if e > 0:
                                 prob = log(q) + log(e) + pi[i-1, index]
                                 
                                 if prob > maxPtag:
@@ -803,6 +865,7 @@ class POSTagger():
             # print("Sequence P for Viterbi: ", max(pi[-1]))
             # print(unknownCount)
             # print(seq)
+            # print(len(seq), len(sequence))
             return seq
 
 
@@ -954,7 +1017,10 @@ if __name__ == "__main__":
 
     # Here you can also implement experiments that compare different styles of decoding,
     # smoothing, n-grams, etc.
+
     evaluate(dev_data, pos_tagger)
+
+
 
     # Predict tags for the test set
     test_predictions = []
