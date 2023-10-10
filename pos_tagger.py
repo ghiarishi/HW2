@@ -1,5 +1,6 @@
 from multiprocessing import Pool
 import numpy as np
+import pandas as pd
 import time
 from tagger_utils import *
 from math import log
@@ -621,28 +622,34 @@ class POSTagger():
         word2idx = self.word2idx
         N = self.N
 
-        if self.kgram == 2: 
+        if self.kgram == 2: # bigram case
+            
+            # 2d matrix of probabilities 
             pi = np.full((len(sequence), len(self.all_tags)), -math.inf)
 
-            pi[0] = 0
+            pi[0] = 0 # set initial probabilities to 0 (log space)
 
-            bp = np.zeros((len(sequence), len(self.all_tags)))
+            bp = np.zeros((len(sequence), len(self.all_tags))) # back pointers
 
-            for i in range(1,len(sequence)): 
+            for i in range(1,len(sequence)): # iterate through all words after the first
 
                 word = sequence[i]
 
                 if word in self.word2idx: # if word is known
                     
-                    for j, cur_tag in enumerate(self.all_tags):
+                    for j, cur_tag in enumerate(self.all_tags): # iterate through all possible tags for the current one
+
                         e = emissions[word2idx[word], tag2idx[cur_tag]]
+
                         if e > 0: 
                             e = log(e)
-                            for k, prev in enumerate(self.all_tags):
-                                q = log(bigrams[k, tag2idx[cur_tag]])
-                                prod = q + e + pi[i-1, k]
+                            for k, prev in enumerate(self.all_tags): # iterate through all possible tags for the previous one
+                                q = log(bigrams[k, tag2idx[cur_tag]]) # calculate bigram transition probability
+
+                                prod = q + e + pi[i-1, k] # new probability adds to probability corresponding to previous tag
                                 
-                                if prod > pi[i, j]:
+                                # if max for the current tag and word combination, update pi and point back to the chosen prev tag
+                                if prod > pi[i, j]: 
                                     pi[i, j] = prod
                                     bp[i, j] = k
 
@@ -660,15 +667,16 @@ class POSTagger():
                                 cur_tag = "NN" # if none of the above conditions true, default to noun
 
                     j = self.tag2idx[cur_tag]
-                    e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
+
+                    e = self.unigramsCount[cur_tag]/N 
+
                     maxPtag = -math.inf  # Initialize with negative infinity
                     
-                    for k in range(len(self.all_tags)):  # Loop over all possible previous tags
+                    for k in range(len(self.all_tags)):  # loop over all possible previous tags, find the one with max probability
 
-                        q = self.bigrams[k, j]
-                        
-                        # If q and e are both non-zero, compute the Viterbi score
-                        if q*e > 0:
+                        q = self.bigrams[k, j] # transition probability
+                    
+                        if e > 0:
                             prob = log(q) + log(e) + pi[i-1, k]
                             if prob > maxPtag:
                                 maxPtag = prob
@@ -676,7 +684,7 @@ class POSTagger():
                     
                     pi[i, j] = maxPtag 
 
-            # Reconstruct the max sequence:            
+            # Reconstruct the max probability sequence from the backpointers           
             seq = ['O'] + [''] * (len(sequence) - 2) + [self.idx2tag[np.argmax(pi[-1])]]
             for i in range(len(sequence)-2, 0, -1):
                 max_idx = np.argmax(pi[i+1])
@@ -685,32 +693,37 @@ class POSTagger():
                 
         elif self.kgram == 3:
                     
+            # 2d matrix of probabilities  [words, bigrams]
             pi = np.full((len(sequence), len_bigramsCount), -math.inf)
-            pi[0] = 0
 
-            bp = np.zeros((len(sequence), len_bigramsCount))
+            pi[0] = 0 # set initial probabilities to 0 (log space)
+
+            bp = np.zeros((len(sequence), len_bigramsCount)) # back pointers
             
-            # iterate through all the words, starting from the one after the start tag
-            for i in range(1,len(sequence)): 
+            for i in range(1,len(sequence)): # iterate through all words after the first
 
                 word = sequence[i]
 
                 if word in self.word2idx: # if word is known
                     
-                    for j, cur_tag in enumerate(self.all_tags):
+                    for j, cur_tag in enumerate(self.all_tags): # iterate through all possible tags for the current one
+                        
                         e = emissions[word2idx[word], tag2idx[cur_tag]]
 
                         if e > 0: 
                             e = log(e)
-                            for index, k in enumerate(self.bigramsCount.keys()):
+                            for index, k in enumerate(self.bigramsCount.keys()): # iterate through all possible previous bigrams
 
-                                if i == 1:
-                                    q = log(bigrams[0, tag2idx[cur_tag]])
-                                else:
+                                if i == 1: # if first word, find bigram probability as only 1 start tag
+                                    q = log(bigrams[0, tag2idx[cur_tag]]) 
+                                else: # calculate trigram transition probability
                                     q = log(trigrams[k[0], k[1], tag2idx[cur_tag]])
-                                prod = q + e + pi[i-1, index]
-                                new_bigram = (k[1], tag2idx[cur_tag])
-                                bigram_idx = bigram2idx[new_bigram]
+
+                                prod = q + e + pi[i-1, index] # new probability adds to probability corresponding to previous bigram
+                                
+                                bigram_idx = bigram2idx[new_bigram] # find the index of the new bigram
+
+                                # if max for the current tag and bigram combination, update pi and point back to the chosen prev bigram
                                 if prod > pi[i, bigram_idx]:
                                     pi[i, bigram_idx] = prod
                                     bp[i, bigram_idx] = k[1]
@@ -730,13 +743,15 @@ class POSTagger():
                     
                     j = self.tag2idx[cur_tag]
 
-                    e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
+                    e = self.unigramsCount[cur_tag]/N  
 
                     maxPtag = -math.inf  # Initialize with negative infinity
                     
                     index = 0
-                    for k in self.bigramsCount.keys():  # Loop over all possible previous bigrams
-                        q = self.trigrams[k[0],k[1], j]
+
+                    for k in self.bigramsCount.keys():  # Loop over all possible previous bigrams (k is a bigram)
+
+                        q = self.trigrams[k[0],k[1], j] # transition probability
 
                         new_bigram = (k[1], self.tag2idx[cur_tag])
                         
@@ -744,15 +759,16 @@ class POSTagger():
 
                         # If q and e are both non-zero, compute the Viterbi score
                         if e > 0:
+
                             prob = log(q) + log(e) + pi[i-1, index]
                             
                             if prob > maxPtag:
                                 maxPtag = prob
                                 bp[i, bigram_idx] = k[1]
                                 pi[i, bigram_idx] = maxPtag 
-                        index+=1 
+                        index += 1 
 
-            # Reconstruct the max sequence: 
+            # Reconstruct the max probability sequence from the backpointers           
             seq = ['O'] + [''] * (len(sequence) - 2) + [idx2tag[idx2bigram[np.argmax(pi[-1])][1]]]
             for i in range(len(sequence)-2, 0, -1):
                 max_idx = np.argmax(pi[i+1])
@@ -768,14 +784,7 @@ if __name__ == "__main__":
 
     pos_tagger.train(train_data)
 
-    # Experiment with your decoder using greedy decoding, beam search, viterbi...
-
-    # Here you can also implement experiments that compare different styles of decoding,
-    # smoothing, n-grams, etc.
-
     evaluate(dev_data, pos_tagger)
-
-
 
     # Predict tags for the test set
     test_predictions = []
@@ -790,3 +799,12 @@ if __name__ == "__main__":
         writer.writerow(["id", "tag"])  # write the headers first
         for index, item in enumerate(test_predictions):
             writer.writerow([index, item])
+
+    # Convert data to a pandas DataFrame (26 mins on viterbi trigrams)
+    # df = pd.DataFrame({
+    #     'id': range(len(test_predictions)),
+    #     'tag': test_predictions
+    # })
+
+    # # Write DataFrame to CSV
+    # df.to_csv("test_y.csv", index=False)
