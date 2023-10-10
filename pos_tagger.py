@@ -63,9 +63,7 @@ def evaluate(data, model):
         probabilities.update(a)
     
     print(f"Probability Estimation Runtime: {(time.time()-start)/60} minutes.")
-    # print(len(predictions[5]))
-    # print(len(tags[5]))
-    # print(len(sentences[5]))
+
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
     unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
@@ -85,7 +83,6 @@ def evaluate(data, model):
     print("Token acc: {}".format(token_acc))
     print("Unk token acc: {}".format(unk_token_acc))
     
-    # print(len(pos_tagger.tag2idx), len(pos_tagger.idx2tag), len(predictions.values()), len(tags))
     confusion_matrix(pos_tagger.tag2idx, pos_tagger.idx2tag, predictions.values(), tags, 'cm.png')
 
     return whole_sent_acc/num_whole_sent, token_acc, sum(probabilities.values())/n
@@ -102,14 +99,13 @@ class POSTagger():
         self.emissionsCount = {}
         self.continuations = defaultdict(set)
 
-        self.k = 0.1
-        self.delta = 0.75 # hyperparameter for kneyser ney smoothing
+        self.k = 0.1 # add k smoothing hyperparameter
 
-        self.smoothing = True # false is witten (linear interpolation for trigrams), true is add k
-        self.unknowns = False # false is suffix, true is nouns 
-        self.beam_k = 3
-        self.model = 3
+        self.smoothing = True # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
+        self.model = 2 # 1 for greedy, 2 for beam, 3 for viterbi
         self.kgram = 3 # 2 for bigrams, 3 for trigrams   
+        self.beam_k = 3 # k parameter as input to beam search
+
     
     def get_unigrams(self):
         """
@@ -222,68 +218,6 @@ class POSTagger():
 
         self.trigrams = trigrams
 
-    # def get_trigrams(self):
-    #     """
-    #     Computes trigrams. 
-    #     Tip. Similar logic to unigrams and bigrams. Store in numpy array. 
-    #     """
-    #     ## TODO
-
-    #     # PREPEND ONE EXTRA START : Lecture 4 slide 19
-
-    #     # Maybe, we will make a 3D np array, with all the possibilities and initialize them to 0. 
-
-    #     for tag1 in self.tag2idx: 
-    #         for tag2 in self.tag2idx: 
-    #             for tag3 in self.tag2idx:
-    #                 self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2],self.tag2idx[tag3])] = 0
-        
-    #     # count the self.trigramsCount
-    #     for sentence in self.data[1]: 
-    #         for i in range(1,len(sentence)):
-    #             if i ==1:
-    #                 tag1 = 'O'
-    #                 tag2 = 'O'
-    #             else:  
-    #                 tag1 = sentence[i-2]
-    #                 tag2 = sentence[i-1]
-    #             tag3 = sentence[i]
-    #             self.trigramsCount[(self.tag2idx[tag1], self.tag2idx[tag2], self.tag2idx[tag3])] += 1
-    #             self.continuations[self.tag2idx[tag3]].add((self.tag2idx[tag1], self.tag2idx[tag2]))
-
-
-    #     # Implementing add-k smoothing 
-        
-    #     self.trigrams = np.zeros((len(self.all_tags), len(self.all_tags),len(self.all_tags)))
-
-    #     for trigram, count in self.trigramsCount.items(): 
-    #         tag1 = self.idx2tag[trigram[0]]
-    #         tag2 = self.idx2tag[trigram[1]]
-    #         tag3 = self.idx2tag[trigram[2]]
-
-    #         if self.smoothing: 
-    #             denominator = self.bigramsCount[self.tag2idx[tag1],self.tag2idx[tag2]] + self.k*self.V 
-    #             self.trigrams[trigram[0],trigram[1],trigram[2]] = (count + self.k)/denominator
-    #         else: 
-    #             # linear interpolation HERE
-    #             lambda1 = 1/3  # for unigram
-    #             lambda2 = 1/3 # for bigram
-    #             lambda3 = 1/3 # for trigram
-
-    #              # Fetch the required counts/probabilities
-             
-    #             if self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]] == 0: 
-    #                 trigram_prob = 0
-    #             else:
-    #                 trigram_prob = count / self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]]
-    #             bigram_prob = self.bigramsCount[self.tag2idx[tag2],self.tag2idx[tag3]] / self.unigramsCount[tag2]
-    #             unigram_prob = self.unigramsCount[tag3] / self.N
- 
-    #             # Linear interpolation
-    #             interpolated_prob = lambda3 * trigram_prob + lambda2 * bigram_prob + lambda1 * unigram_prob
-
-    #             self.trigrams[trigram[0],trigram[1],trigram[2]] = interpolated_prob
-
     def get_emissions(self):
         """
         Computes emission probabilities. 
@@ -369,9 +303,16 @@ class POSTagger():
             for word, tag in zip(sentence, tag_seq):
                 # Here, we take the last 3 characters as the suffix; this number can be tuned
                 self.suffixes[word[-3:]].update([tag])
+        # Build the prefix mapping
+        self.prefixes = defaultdict(Counter)
+        for sentence, tag_seq in zip(data[0], data[1]):
+            for word, tag in zip(sentence, tag_seq):
+                # Here, we take the last 3 characters as the suffix; this number can be tuned
+                self.prefixes[word[2:]].update([tag])
                 
         # Choose the most common tag for each suffix
         self.suffix_to_tag = {suffix: tags.most_common(1)[0][0] for suffix, tags in self.suffixes.items()}
+        self.prefix_to_tag = {prefix: tags.most_common(1)[0][0] for prefix, tags in self.prefixes.items()}        
 
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
@@ -379,6 +320,7 @@ class POSTagger():
         """
         ## TODO
 
+        
         prob = 1
         for i in range(1, len(sequence)):
             # probability of word given the tag
@@ -392,7 +334,7 @@ class POSTagger():
                 # Unknown word prob = 1
 
         return prob
-
+    
     def inference(self, sequence):
         """Tags a sequence with part of speech tags.
 
@@ -438,15 +380,15 @@ class POSTagger():
                     prev = maxTag
                     tagSeq.append(maxTag)
                 else: 
-                    if self.unknowns: 
-                        # handling the unknown word as a noun
-                        prev = 'NN'
-                        tagSeq.append('NN')
-
-                    else: # suffix tree mapping
-                        prev = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
-                        tagSeq.append(prev)
-            # print(tagSeq)
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                    if(cur_tag == None):
+                        if(word[0].isupper()):
+                            cur_tag = "NNP"
+                        else:
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            if(cur_tag == None):
+                                cur_tag = "NN"
+                    tagSeq.append(cur_tag)
             return tagSeq
         elif self.kgram == 3: 
             prev1 = 'O' # as this is start word (the one just before current)
@@ -469,191 +411,152 @@ class POSTagger():
                     prev1 = maxTag
                     tagSeq.append(maxTag)
                 else: 
-                    if self.unknowns: 
-                        # handling the unknown word as a noun
-                        prev = 'NN'
-                        tagSeq.append('NN')
-
-                    else: # suffix tree mapping
-                        prev = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
-                        tagSeq.append(prev)
-            # print(tagSeq)
+                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                    if(cur_tag == None):
+                        if(word[0].isupper()):
+                            cur_tag = "NNP"
+                        else:
+                            cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                            if(cur_tag == None):
+                                cur_tag = "NN"
+                    tagSeq.append(cur_tag)
             return tagSeq
 
     def beam(self, sequence, k):
-        """ Tags a sequence with PoS tags
+        tag2idx = self.tag2idx
+        word2idx = self.word2idx
+        all_tags = self.all_tags
+        bigrams = self.bigrams
+        trigrams = self.trigrams
+        emissions = self.emissions
+        unigramsCount = self.unigramsCount
+        N = self.N
+    
+        if self.kgram == 2:
+            top_k_seq = [['O'] for _ in range(k)]
+            top_k_prob = [0] * k
 
-        Implements beam search"""
-        
-        ## TODO 
-        unknownCount = 0
-        if self.kgram == 2: 
-            top_k_seq = [['O'] for i in range(k)]
-            top_k_prob =  [0 for j in range(k)]
-            for word in sequence[1:-1]: 
-                # probSet = set()
-                if word in self.word2idx:
+            for word in sequence[1:-1]:
+                if word in word2idx:
+                    word_idx = word2idx[word]
                     cur_k_seq = {}
                     cur_k_seq_set = set()
 
-                    # go through the all the sequences we have
-                    for i in range(len(top_k_seq)): 
-                        parent = top_k_seq[i]
+                    for i, parent in enumerate(top_k_seq):
                         parent_prob = top_k_prob[i]
+                        last_tag_idx = tag2idx[parent[-1]]
 
-                        # for each parent, check each possible tags
-                        for tag in self.all_tags: 
-
-                            q = self.bigrams[self.tag2idx[top_k_seq[i][-1]], self.tag2idx[tag]]
-                            e = self.emissions[self.word2idx[word], self.tag2idx[tag]]
+                        for tag in all_tags:
+                            tag_idx = tag2idx[tag]
+                            q = bigrams[last_tag_idx, tag_idx]
+                            e = emissions[word_idx, tag_idx]
                             
-                            if q*e == 0: 
-                                # print(e)
+                            if q * e == 0:
                                 continue
 
-                            # for each tag for each sequence we have, calculate the prprobability
                             prob = log(q) + log(e) + parent_prob
-                            
-                            # keep adding sequences into the set so long as its length is less than k
-                            # if length is k, then every time you add a sequence, remove the lowest prob sequence 
-                            new_seq = copy.deepcopy(parent)
-                            new_seq.append(tag)
-                            # print(new_seq)
-                            
-                            # print(cur_k_seq_set)
-                            
+                            new_seq = parent + [tag]
+
                             if tuple(new_seq) not in cur_k_seq_set:
                                 if len(cur_k_seq_set) < k:
                                     cur_k_seq_set.add(tuple(new_seq))
-                                    cur_k_seq[prob] = (new_seq, i)
-
-                                # if the length is k or greater, repalce least probable element with new one(if higher)
-                                else:                              
+                                    cur_k_seq[prob] = new_seq
+                                else:
                                     minProb = min(cur_k_seq.keys())
-                                    if prob > minProb: 
-                                        cur_k_seq[prob] = (new_seq, i)
-                                        remove_from_set = cur_k_seq[minProb]
-                                        cur_k_seq_set.remove(tuple(remove_from_set[0]))
+                                    if prob > minProb:
+                                        remove_seq = cur_k_seq.pop(minProb)
+                                        cur_k_seq_set.remove(tuple(remove_seq))
                                         cur_k_seq_set.add(tuple(new_seq))
-                                        del cur_k_seq[minProb]
-                
-                    # we now have the top k or less probabilties based on uniqueness
-                    # now, we must replace the original with these
-                    top_k_prob = []
-                    top_k_seq = []
-                    
-                    sorted_keys = sorted(cur_k_seq.keys(), reverse=True)
-                    
-                    for p in sorted_keys: 
-                        top_k_seq.append(cur_k_seq[p][0])
-                        top_k_prob.append(p)
+                                        cur_k_seq[prob] = new_seq
 
-                    # print(top_k_seq)
-                                
-                else: 
-                    unknownCount += 1
-                    if self.unknowns: 
-                        for seq in top_k_seq:
-                            seq.append('NN')
-                    else: 
-                        for i in range(len(top_k_seq)):
-                            cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
-                            top_k_seq[i].append(cur_tag)
-                            q = self.bigrams[self.tag2idx[top_k_seq[i][-1]], self.tag2idx[cur_tag]]
-                            e = self.unigramsCount[cur_tag]/self.N
-                            top_k_prob[i] += log(q) + log(e)
+                    top_k_prob = sorted(cur_k_seq.keys(), reverse=True)[:k]
+                    top_k_seq = [cur_k_seq[p] for p in top_k_prob]
 
-            # print("Sequence P for Beam (bigram)", top_k_prob[0])
-            # print(unknownCount)
+                else:
+                    for i, seq in enumerate(top_k_seq):
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                        if(cur_tag == None):
+
+                            if(word[0].isupper()):
+                                cur_tag = "NNP"
+                            else:
+                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                                if(cur_tag == None):
+                                    cur_tag = "NN"
+                        seq.append(cur_tag)
+                        
+                        last_tag_idx = tag2idx[seq[-1]]
+                        cur_tag_idx = tag2idx[cur_tag]
+                        q = bigrams[last_tag_idx, cur_tag_idx]
+                        e = unigramsCount[cur_tag] / N
+                        top_k_prob[i] += log(q) + log(e)
+
             sol = top_k_seq[0]
             sol.append('.')
-            return sol    
-        elif self.kgram == 3:  
-            top_k_seq = [['O','O'] for i in range(k)]
-            top_k_prob =  [0 for j in range(k)]
-            for word in sequence[1:-1]: 
-                # probSet = set()
-                if word in self.word2idx:
+            return sol
+
+        elif self.kgram == 3:
+            top_k_seq = [['O', 'O'] for _ in range(k)]
+            top_k_prob = [0] * k
+
+            for word in sequence[1:-1]:
+                if word in word2idx:
+                    word_idx = word2idx[word]
                     cur_k_seq = {}
                     cur_k_seq_set = set()
 
-                    # go through the all the sequences we have
-                    for i in range(len(top_k_seq)): 
-                        parent = top_k_seq[i]
+                    for i, parent in enumerate(top_k_seq):
                         parent_prob = top_k_prob[i]
+                        last_two_tags_idx = (tag2idx[parent[-2]], tag2idx[parent[-1]])
 
-                        # for each parent, check each possible tags
-                        for tag in self.all_tags: 
+                        for tag in all_tags:
+                            tag_idx = tag2idx[tag]
+                            q = trigrams[last_two_tags_idx + (tag_idx,)]
+                            e = emissions[word_idx, tag_idx]
 
-                            q = self.trigrams[self.tag2idx[top_k_seq[i][-2]], self.tag2idx[top_k_seq[i][-1]], self.tag2idx[tag]]
-
-                            e = self.emissions[self.word2idx[word], self.tag2idx[tag]]
-                            
-                            if q*e == 0: 
-                                # print(e)
+                            if q * e == 0:
                                 continue
-
-                            # for each tag for each sequence we have, calculate the prprobability
+                            
                             prob = log(q) + log(e) + parent_prob
-                            
-                            # keep adding sequences into the set so long as its length is less than k
-                            # if length is k, then every time you add a sequence, remove the lowest prob sequence 
-                            new_seq = copy.deepcopy(parent)
-                            new_seq.append(tag)
-                            # print(new_seq)
-                            
-                            # print(cur_k_seq_set)
-                            
+                            new_seq = parent + [tag]
+
                             if tuple(new_seq) not in cur_k_seq_set:
                                 if len(cur_k_seq_set) < k:
                                     cur_k_seq_set.add(tuple(new_seq))
-                                    cur_k_seq[prob] = (new_seq, i)
-
-                                # if the length is k or greater, repalce least probable element with new one(if higher)
-                                else:                              
+                                    cur_k_seq[prob] = new_seq
+                                else:
                                     minProb = min(cur_k_seq.keys())
-                                    if prob > minProb: 
-                                        cur_k_seq[prob] = (new_seq, i)
-                                        remove_from_set = cur_k_seq[minProb]
-                                        cur_k_seq_set.remove(tuple(remove_from_set[0]))
+                                    if prob > minProb:
+                                        remove_seq = cur_k_seq.pop(minProb)
+                                        cur_k_seq_set.remove(tuple(remove_seq))
                                         cur_k_seq_set.add(tuple(new_seq))
-                                        del cur_k_seq[minProb]
-                
-                    # we now have the top k or less probabilties based on uniqueness
-                    # now, we must replace the original with these
-                    top_k_prob = []
-                    top_k_seq = []
-                    
-                    sorted_keys = sorted(cur_k_seq.keys(), reverse=True)
-                    
-                    for p in sorted_keys: 
-                        top_k_seq.append(cur_k_seq[p][0])
-                        top_k_prob.append(p)
+                                        cur_k_seq[prob] = new_seq
 
-                    # print(top_k_seq)
-                                
-                else: 
-                    if self.unknowns: 
-                        for seq in top_k_seq:
-                            seq.append('NN')
-                    else: 
-                        for i in range(len(top_k_seq)):
-                            cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
-                            top_k_seq[i].append(cur_tag)
-                            q = self.trigrams[self.tag2idx[top_k_seq[i][-2]], self.tag2idx[top_k_seq[i][-1]], self.tag2idx[cur_tag]]
-                            e = self.unigramsCount[cur_tag]/self.N
-                            top_k_prob[i] += log(q) + log(e)
+                    top_k_prob = sorted(cur_k_seq.keys(), reverse=True)[:k]
+                    top_k_seq = [cur_k_seq[p] for p in top_k_prob]
+
+                else:
+                    for i, seq in enumerate(top_k_seq):
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
+                        if(cur_tag == None):
+                            if(word[0].isupper()):
+                                cur_tag = "NNP"
+                            else:
+                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                                if(cur_tag == None):
+                                    cur_tag = "NN"
+                        seq.append(cur_tag)
+                        
+                        last_two_tags_idx = (tag2idx[seq[-2]], tag2idx[seq[-1]])
+                        cur_tag_idx = tag2idx[cur_tag]
+                        q = trigrams[last_two_tags_idx + (cur_tag_idx,)]
+                        e = unigramsCount[cur_tag] / N
+                        top_k_prob[i] += log(q) + log(e)
 
             sol = top_k_seq[0]
-            
             sol.append('.')
             sol.pop(0)
-
-            # print(sol)
-
-            # print("Sequence P for Beam (trigram)", top_k_prob[0])
-            # print(unknownCount)
-            return sol       
+            return sol  
 
     def viterbi (self, sequence):
         """ Tags a sequence with PoS tags
@@ -661,10 +564,7 @@ class POSTagger():
         Implements viterbi decoding"""
 
         # TODO
-        # print(sequence)
-        # this is for bigrams, another self.alltags for trigrams
 
-        len_all_tags = len(self.all_tags)
         len_bigramsCount = len(self.bigramsCount.keys())
         log = math.log
         tag2idx = self.tag2idx
@@ -704,22 +604,25 @@ class POSTagger():
                                     bp[i, j] = k
 
                 else: # if word is unknown
-                    unknownCount += 1
-                    # print("Unkown: ", word)
                     if self.unknowns: 
                         for j in range(len(self.all_tags)): # go through each tag
                             pi[i, j] = pi[i-1, j]
                             bp[i,j] = bp[i-1,j]
 
                     else: # suffix tree mapping
-                        cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to noun if suffix not in mapping
 
-                        
+                        if(cur_tag == None):
+
+                            if(word[0].isupper()):
+                                cur_tag = "NNP"
+                            else:
+                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                                if(cur_tag == None):
+                                    cur_tag = "NN"
+
                         j = self.tag2idx[cur_tag]
-
                         e = self.unigramsCount[cur_tag]/self.N  #1 / len(self.word2idx)
-
-                        
                         maxPtag = -math.inf  # Initialize with negative infinity
                         
                         for k in range(len(self.all_tags)):  # Loop over all possible previous tags
@@ -729,7 +632,6 @@ class POSTagger():
                             # If q and e are both non-zero, compute the Viterbi score
                             if q*e > 0:
                                 prob = log(q) + log(e) + pi[i-1, k]
-                                print(prob)
                                 if prob > maxPtag:
                                     maxPtag = prob
                                     bp[i, j] = k
@@ -737,20 +639,14 @@ class POSTagger():
                         pi[i, j] = maxPtag 
 
             # Reconstruct the max sequence:            
-            seq = ['O'] + [''] * (len(sequence) - 2) + self.idx2tag[np.argmax(pi[-1])]
+            seq = ['O'] + [''] * (len(sequence) - 2) + [self.idx2tag[np.argmax(pi[-1])]]
             for i in range(len(sequence)-2, 0, -1):
                 max_idx = np.argmax(pi[i+1])
                 seq[i] = self.idx2tag[int(bp[i+1, max_idx])]
             return seq
-            
-        
+                
         elif self.kgram == 3:
-            # print(sequence)
-            # this is for bigrams, another self.alltags for trigrams
-
-            
-            unigramsCount = self.unigramsCount
-
+                    
             pi = np.full((len(sequence), len_bigramsCount), -math.inf)
             pi[0] = 0
 
@@ -792,6 +688,14 @@ class POSTagger():
                     else: # suffix tree mapping
                         cur_tag = self.suffix_to_tag.get(word[-3:], "NN")  # default to noun if suffix not in mapping
 
+                        if(cur_tag == None):
+
+                            if(word[0].isupper()):
+                                cur_tag = "NNP"
+                            else:
+                                cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to noun if suffix not in mapping
+                                if(cur_tag == None):
+                                    cur_tag = "NN"
                         
                         j = self.tag2idx[cur_tag]
 
