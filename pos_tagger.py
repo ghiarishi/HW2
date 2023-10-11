@@ -11,9 +11,7 @@ from collections import Counter
 import copy
 from itertools import permutations
 
-
 """ Contains the part of speech tagger class. """
-
 
 def evaluate(data, model):
     """Evaluates the POS model on some sentences and gold tags.
@@ -101,10 +99,11 @@ class POSTagger():
 
         # INPUT HERE
         self.k = 0.1 # add-k smoothing hyperparameter
+        self.lambda1, self.lambda2, self.lambda3 = 0.15, 0.5, 0.35 # unigram, bigram and trigram respectively 
 
         self.smoothing = True # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
-        self.model = 3 # 1 for greedy, 2 for beam, 3 for viterbi
-        self.kgram = 3 # 2 for bigrams, 3 for trigrams   
+        self.model = 2 # 1 for greedy, 2 for beam, 3 for viterbi
+        self.kgram = 2 # 2 for bigrams, 3 for trigrams   
         self.beam_k = 3 # k parameter as input to beam search
     
     def get_unigrams(self):
@@ -124,7 +123,7 @@ class POSTagger():
     def get_bigrams(self):        
         """
         Computes bigrams. 
-        Tip. Map each tag to an integer and store the bigrams in a numpy array
+        Tip. Map each tag to an integer and stTHe ore the bigrams in a numpy array
              such that bigrams[index[tag1], index[tag2]] = Prob(tag2|tag1). 
 
         
@@ -205,7 +204,7 @@ class POSTagger():
             
             else: # linear interpolation 
                 # hyperparameter values for unigrams, bigrams, and trigrams
-                lambda1, lambda2, lambda3 = 1/3, 1/3, 1/3  
+                lambda1, lambda2, lambda3 = self.lambda1, self.lambda2, self.lambda3
 
                 # Fetch the required counts/probabilities
                 bigram_count = bigramsCount.get((tag2_idx, tag3_idx), 0)
@@ -268,8 +267,6 @@ class POSTagger():
         self.tag2idx = {self.all_tags[i]:i for i in range(len(self.all_tags))}  # This is basically a dictionary of Tag : id 
         
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}    # And this basically is a dictionary of id: Tag
-
-        
 
         ## TODO
         # number of unique tags appearing after each tag
@@ -394,14 +391,16 @@ class POSTagger():
                     tagSeq.append(maxTag)
 
                 else: # deal with unknown words 
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
-                    if(cur_tag == None):
-                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
-                            cur_tag = "NNP"
-                        else:
+                    if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
+                        cur_tag = "NNP"
+                    else: 
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
+                        
+                        if cur_tag == None: 
                             cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
-                                cur_tag = "NN" # if none of the above conditions true, default to noun 
+                                cur_tag = "NN" # if none of the above conditions true, default to noun
+
                     tagSeq.append(cur_tag)
             return tagSeq
         
@@ -429,14 +428,16 @@ class POSTagger():
                     tagSeq.append(maxTag)
                 
                 else: # unknown case 
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
-                    if(cur_tag == None):
-                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
-                            cur_tag = "NNP"
-                        else:
+                    if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
+                        cur_tag = "NNP"
+                    else: 
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
+                        
+                        if cur_tag == None: 
                             cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
                                 cur_tag = "NN" # if none of the above conditions true, default to noun
+
                     tagSeq.append(cur_tag)
             return tagSeq
 
@@ -505,15 +506,16 @@ class POSTagger():
 
                 else:
                     for i, seq in enumerate(top_k_seq):
-                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
-                        if(cur_tag == None):
-
-                            if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
-                                cur_tag = "NNP"
-                            else:
+                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
+                            cur_tag = "NNP"
+                        else: 
+                            cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
+                            
+                            if cur_tag == None: 
                                 cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                                 if(cur_tag == None):
                                     cur_tag = "NN" # if none of the above conditions true, default to noun
+
                         seq.append(cur_tag)
                         
                         last_tag_idx = tag2idx[seq[-1]]
@@ -581,14 +583,16 @@ class POSTagger():
 
                 else:
                     for i, seq in enumerate(top_k_seq):
-                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
-                        if(cur_tag == None):
-                            if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
-                                cur_tag = "NNP"
-                            else:
+                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
+                            cur_tag = "NNP"
+                        else: 
+                            cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
+                            
+                            if cur_tag == None: 
                                 cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                                 if(cur_tag == None):
                                     cur_tag = "NN" # if none of the above conditions true, default to noun
+
                         seq.append(cur_tag)
                         
                         last_two_tags_idx = (tag2idx[seq[-2]], tag2idx[seq[-1]])
@@ -653,15 +657,13 @@ class POSTagger():
                                     pi[i, j] = prod
                                     bp[i, j] = k
 
-                else: # if word is unknown
-                    
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
-
-                    if(cur_tag == None):
-
-                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
-                            cur_tag = "NNP"
-                        else:
+                else: # if word is unknown                    
+                    if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
+                        cur_tag = "NNP"
+                    else: 
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
+                        
+                        if cur_tag == None: 
                             cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
                                 cur_tag = "NN" # if none of the above conditions true, default to noun
@@ -721,26 +723,25 @@ class POSTagger():
 
                                 prod = q + e + pi[i-1, index] # new probability adds to probability corresponding to previous bigram
                                 
+                                new_bigram = (k[1], tag2idx[cur_tag])
                                 bigram_idx = bigram2idx[new_bigram] # find the index of the new bigram
 
                                 # if max for the current tag and bigram combination, update pi and point back to the chosen prev bigram
                                 if prod > pi[i, bigram_idx]:
                                     pi[i, bigram_idx] = prod
                                     bp[i, bigram_idx] = k[1]
-
         
                 else: # if word is unknown
-                    cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
-
-                    if(cur_tag == None):
-
-                        if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
-                            cur_tag = "NNP"
-                        else:
+                    if(word[0].isupper()): # classify the word as a Proper Noun ig the first letter is upper case
+                        cur_tag = "NNP"
+                    else: 
+                        cur_tag = self.suffix_to_tag.get(word[-3:], None)  # default to none if suffix not in mapping
+                        
+                        if cur_tag == None: 
                             cur_tag = self.prefix_to_tag.get(word[2:], None)  # default to none if suffix not in mapping
                             if(cur_tag == None):
                                 cur_tag = "NN" # if none of the above conditions true, default to noun
-                    
+
                     j = self.tag2idx[cur_tag]
 
                     e = self.unigramsCount[cur_tag]/N  
@@ -782,6 +783,10 @@ if __name__ == "__main__":
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
     test_data = load_data("data/test_x.csv")
 
+    print(len(train_data[0]))
+    print(len(dev_data[0]))
+    print(len(test_data[0]))
+
     pos_tagger.train(train_data)
 
     evaluate(dev_data, pos_tagger)
@@ -799,12 +804,3 @@ if __name__ == "__main__":
         writer.writerow(["id", "tag"])  # write the headers first
         for index, item in enumerate(test_predictions):
             writer.writerow([index, item])
-
-    # Convert data to a pandas DataFrame (26 mins on viterbi trigrams)
-    # df = pd.DataFrame({
-    #     'id': range(len(test_predictions)),
-    #     'tag': test_predictions
-    # })
-
-    # # Write DataFrame to CSV
-    # df.to_csv("test_y.csv", index=False)
