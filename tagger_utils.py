@@ -133,6 +133,6 @@ def confusion_matrix(tag2idx,idx2tag, pred, gt, fname):
         matrix[idx_y][idx_pred] += 1
     df_cm = pd.DataFrame(matrix, index = [idx2tag[i] for i in range(len(tag2idx))],
                 columns = [idx2tag[i] for i in range(len(tag2idx))])
-    plt.figure(figsize = (10,7))
+    plt.figure(figsize = (20,14))
     sn.heatmap(df_cm, annot=False)
     plt.savefig(fname)

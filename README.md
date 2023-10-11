@@ -1,3 +1,19 @@
+# HOW TO RUN SUBMITTED FILES
+
+1. Open pos-tagger.py and tagger_utils.py in the same directory along with the requisite dataset. 
+
+2. Navigate to line 100 of pos_tagger.py and modify the hyperparameters as needed: 
+        # INPUT HERE
+        self.k = 0.1 # add-k smoothing hyperparameter
+        self.lambda1, self.lambda2, self.lambda3 = 0.15, 0.5, 0.35 # unigram, bigram and trigram respectively 
+
+        self.smoothing = False # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
+        self.model = 3 # 1 for greedy, 2 for beam, 3 for viterbi
+        self.kgram = 3 # 2 for bigrams, 3 for trigrams   
+        self.beam_k = 3 # k parameter as input to beam search
+
+3. Enjoy! 
+
 # Starter Code 
 
 ## Files

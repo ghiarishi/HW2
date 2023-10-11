@@ -101,9 +101,9 @@ class POSTagger():
         self.k = 0.1 # add-k smoothing hyperparameter
         self.lambda1, self.lambda2, self.lambda3 = 0.15, 0.5, 0.35 # unigram, bigram and trigram respectively 
 
-        self.smoothing = True # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
-        self.model = 2 # 1 for greedy, 2 for beam, 3 for viterbi
-        self.kgram = 2 # 2 for bigrams, 3 for trigrams   
+        self.smoothing = False # false is witten (for bigrams) and linear interpolation for trigrams), true is add k
+        self.model = 3 # 1 for greedy, 2 for beam, 3 for viterbi
+        self.kgram = 3 # 2 for bigrams, 3 for trigrams   
         self.beam_k = 3 # k parameter as input to beam search
     
     def get_unigrams(self):
