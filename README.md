@@ -1,4 +1,4 @@
-# HOW TO RUN SUBMITTED FILES
+# HOW TO RUN
 
 1. Open pos-tagger.py and tagger_utils.py in the same directory along with the requisite dataset. 
 
